@@ -173,3 +173,79 @@ class TsetmcClient:
             "max_year": info.get("maxYear"),
             "raw": info,
         }
+
+    def get_closing_price_info(self, ins_code: str) -> dict[str, Any]:
+        """Fetch the latest trading and closing price information."""
+        payload = self._get_json(
+            f"ClosingPrice/GetClosingPriceInfo/{quote(ins_code.strip(), safe='')}"
+        )
+        info = payload.get("closingPriceInfo")
+
+        if not isinstance(info, dict):
+            raise ProviderSchemaError(
+                "Expected 'closingPriceInfo' object in TSETMC response."
+            )
+
+        state = info.get("instrumentState")
+
+        return {
+            "ins_code": ins_code.strip(),
+            "date": info.get("finalLastDate"),
+            "closing_price": info.get("pClosing"),
+            "last_price": info.get("pDrCotVal"),
+            "first_price": info.get("priceFirst"),
+            "min_price": info.get("priceMin"),
+            "max_price": info.get("priceMax"),
+            "yesterday_price": info.get("priceYesterday"),
+            "trade_count": info.get("zTotTran"),
+            "volume": info.get("qTotTran5J"),
+            "value": info.get("qTotCap"),
+            "state": (
+                state.get("cEtavalTitle")
+                if isinstance(state, dict) else None
+            ),
+            "raw": info,
+        }
+
+    def get_daily_prices(
+        self,
+        ins_code: str,
+        count: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Fetch daily closing-price history for an instrument."""
+        if not 1 <= count <= 365:
+            raise ValueError("Daily price count must be between 1 and 365.")
+
+        payload = self._get_json(
+            f"ClosingPrice/GetClosingPriceDailyList/"
+            f"{quote(ins_code.strip(), safe='')}/{count}"
+        )
+        rows = payload.get("closingPriceDaily")
+
+        if not isinstance(rows, list):
+            raise ProviderSchemaError(
+                "Expected 'closingPriceDaily' list in TSETMC response."
+            )
+
+        result = []
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            result.append({
+                "date": row.get("dEven"),
+                "change": row.get("priceChange"),
+                "closing_price": row.get("pClosing"),
+                "last_price": row.get("pDrCotVal"),
+                "first_price": row.get("priceFirst"),
+                "min_price": row.get("priceMin"),
+                "max_price": row.get("priceMax"),
+                "yesterday_price": row.get("priceYesterday"),
+                "trade_count": row.get("zTotTran"),
+                "volume": row.get("qTotTran5J"),
+                "value": row.get("qTotCap"),
+                "raw": row,
+            })
+
+        return result
