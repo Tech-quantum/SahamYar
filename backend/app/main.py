@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 
 from flask import Flask, jsonify, request
 
@@ -37,6 +38,26 @@ def search_stocks():
         "query": query,
         "count": len(items),
         "items": items,
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.get("/api/v1/stocks/<ins_code>")
+def get_stock_info(ins_code):
+    if not re.fullmatch(r"[0-9]{5,30}", ins_code):
+        return jsonify({
+            "detail": "Instrument code must contain 5 to 30 digits."
+        }), 400
+
+    try:
+        item = tsetmc.get_instrument_info(ins_code)
+    except (ProviderUnavailable, ProviderSchemaError) as exc:
+        return jsonify({"detail": str(exc)}), 502
+
+    return jsonify({
+        "source": "TSETMC",
+        "ins_code": ins_code,
+        "item": item,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
     })
 

@@ -40,3 +40,44 @@ def test_search_handles_provider_error(monkeypatch):
     )
 
     assert response.status_code == 502
+
+
+def test_instrument_info_returns_details(monkeypatch):
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_instrument_info",
+        lambda code: {
+            "ins_code": code,
+            "symbol": "فولاد",
+            "name": "فولاد مبارکه",
+            "sector": "فلزات اساسی",
+            "eps": {"estimatedEPS": "693"},
+        },
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789"
+    )
+
+    assert response.status_code == 200
+    assert response.json["source"] == "TSETMC"
+    assert response.json["item"]["symbol"] == "فولاد"
+
+
+def test_instrument_info_rejects_invalid_code():
+    response = main.app.test_client().get("/api/v1/stocks/abc")
+
+    assert response.status_code == 400
+
+
+def test_instrument_info_handles_provider_error(monkeypatch):
+    def fail(_):
+        raise ProviderUnavailable("Upstream unavailable")
+
+    monkeypatch.setattr(main.tsetmc, "get_instrument_info", fail)
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789"
+    )
+
+    assert response.status_code == 502

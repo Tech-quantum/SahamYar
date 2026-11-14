@@ -134,3 +134,42 @@ class TsetmcClient:
             })
 
         return normalized
+
+    def get_instrument_info(self, ins_code: str) -> dict[str, Any]:
+        """Fetch and normalize detailed information for one instrument."""
+        payload = self._get_json(
+            f"Instrument/GetInstrumentInfo/{quote(ins_code.strip(), safe='')}"
+        )
+        info = payload.get("instrumentInfo")
+
+        if not isinstance(info, dict):
+            raise ProviderSchemaError(
+                "Expected 'instrumentInfo' object in TSETMC response."
+            )
+
+        sector = info.get("sector")
+        eps = info.get("eps")
+
+        return {
+            "ins_code": (
+                str(info["insCode"])
+                if info.get("insCode") is not None else None
+            ),
+            "symbol": info.get("lVal18AFC"),
+            "name": info.get("lVal30"),
+            "isin": info.get("cIsin"),
+            "market_flow": info.get("flow"),
+            "market": info.get("flowTitle"),
+            "sector": (
+                sector.get("lSecVal")
+                if isinstance(sector, dict) else None
+            ),
+            "eps": eps if isinstance(eps, dict) else {},
+            "shares_count": info.get("zTitad"),
+            "base_volume": info.get("baseVol"),
+            "min_week": info.get("minWeek"),
+            "max_week": info.get("maxWeek"),
+            "min_year": info.get("minYear"),
+            "max_year": info.get("maxYear"),
+            "raw": info,
+        }
