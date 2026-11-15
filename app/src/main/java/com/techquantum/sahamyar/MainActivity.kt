@@ -11,6 +11,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,41 +59,106 @@ private fun SahamYarTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun DashboardScreen() {
+    val selectedTab = remember { mutableIntStateOf(0) }
+
     Scaffold(
         containerColor = Background,
-        bottomBar = { BottomNavigationBar() }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .statusBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 16.dp)
-        ) {
-            Header()
-            Spacer(Modifier.height(24.dp))
-            MarketStatusCard()
-            Spacer(Modifier.height(24.dp))
-            SectionTitle("نمای کلی بازار", "اطلاعات پس از اتصال به سرویس")
-            Spacer(Modifier.height(12.dp))
-            MarketOverview()
-            Spacer(Modifier.height(24.dp))
-            SectionTitle("نمادهای منتخب", "مشاهده دیده‌بان")
-            Spacer(Modifier.height(12.dp))
-            EmptyStateCard(
-                "هنوز نمادی انتخاب نشده است",
-                "نمادهای مورد علاقه‌ات را به دیده‌بان اضافه کن."
-            )
-            Spacer(Modifier.height(24.dp))
-            SectionTitle("دسترسی سریع", null)
-            Spacer(Modifier.height(12.dp))
-            QuickAccessCard("جستجوی نماد", "جستجو در شرکت‌های بورس و فرابورس")
-            QuickAccessCard("دیده‌بان من", "پیگیری نمادها و هشدارهای قیمتی")
-            QuickAccessCard("سبد سرمایه‌گذاری", "مدیریت دارایی و محاسبه سود و زیان")
-            QuickAccessCard("تحلیل هوشمند", "بررسی تکنیکال و تحلیل روند نمادها")
-            Spacer(Modifier.height(20.dp))
+        bottomBar = {
+            BottomNavigationBar(selectedTab.intValue) { selectedTab.intValue = it }
         }
+    ) { padding ->
+        val contentModifier = Modifier.fillMaxSize().padding(padding)
+
+        when (selectedTab.intValue) {
+            0 -> Column(
+                modifier = contentModifier
+                    .statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
+            ) {
+                Header()
+                Spacer(Modifier.height(24.dp))
+                MarketStatusCard()
+                Spacer(Modifier.height(24.dp))
+                SectionTitle("نمای کلی بازار", "اطلاعات پس از اتصال به سرویس")
+                Spacer(Modifier.height(12.dp))
+                MarketOverview()
+                Spacer(Modifier.height(24.dp))
+                SectionTitle("نمادهای منتخب", "مشاهده دیده‌بان")
+                Spacer(Modifier.height(12.dp))
+                EmptyStateCard(
+                    "هنوز نمادی انتخاب نشده است",
+                    "نمادهای مورد علاقه‌ات را به دیده‌بان اضافه کن."
+                )
+                Spacer(Modifier.height(24.dp))
+                SectionTitle("دسترسی سریع", null)
+                Spacer(Modifier.height(12.dp))
+                QuickAccessCard("جستجوی نماد", "جستجو در شرکت‌های بورس و فرابورس")
+                QuickAccessCard("دیده‌بان من", "پیگیری نمادها و هشدارهای قیمتی")
+                QuickAccessCard("سبد سرمایه‌گذاری", "مدیریت دارایی و محاسبه سود و زیان")
+                QuickAccessCard("تحلیل هوشمند", "بررسی تکنیکال و تحلیل روند نمادها")
+                Spacer(Modifier.height(20.dp))
+            }
+            1 -> MarketScreen(contentModifier)
+            else -> ComingSoonScreen(
+                listOf("خانه", "بازار", "دیده‌بان", "سبد", "بیشتر")[selectedTab.intValue],
+                contentModifier
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarketScreen(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 16.dp)
+    ) {
+        Text("بازار", color = Orange, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Text("جستجو و بررسی نمادهای بورس و فرابورس", color = TextSecondary, fontSize = 13.sp)
+        Spacer(Modifier.height(24.dp))
+        MarketStatusCard()
+        Spacer(Modifier.height(24.dp))
+        SectionTitle("جستجوی نماد", "نام شرکت، نماد یا کد ابزار")
+        Spacer(Modifier.height(12.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text(
+                "جستجوی نماد به‌زودی فعال می‌شود",
+                modifier = Modifier.padding(18.dp),
+                color = TextSecondary
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+        SectionTitle("فهرست نمادها", "پس از دریافت اطلاعات از سرویس")
+        Spacer(Modifier.height(12.dp))
+        EmptyStateCard(
+            "اطلاعات نمادی در دسترس نیست",
+            "پس از اتصال سرویس بازار، فهرست نمادها نمایش داده می‌شود."
+        )
+    }
+}
+
+@Composable
+private fun ComingSoonScreen(title: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(18.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(title, color = Orange, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        Text("این بخش در حال توسعه است.", color = TextPrimary)
+        Spacer(Modifier.height(8.dp))
+        Text("در نسخه‌های بعدی فعال خواهد شد.", color = TextSecondary, fontSize = 13.sp)
     }
 }
 
@@ -258,14 +325,17 @@ private fun QuickAccessCard(title: String, description: String) {
 }
 
 @Composable
-private fun BottomNavigationBar() {
+private fun BottomNavigationBar(
+    selectedIndex: Int,
+    onItemSelected: (Int) -> Unit
+) {
     NavigationBar(containerColor = SurfaceDark, contentColor = Orange) {
         val items = listOf("خانه", "بازار", "دیده‌بان", "سبد", "بیشتر")
         val symbols = listOf("⌂", "▥", "☆", "▣", "⋯")
         items.forEachIndexed { index, label ->
             NavigationBarItem(
-                selected = index == 0,
-                onClick = { },
+                selected = selectedIndex == index,
+                onClick = { onItemSelected(index) },
                 icon = { Text(symbols[index], fontSize = 20.sp) },
                 label = { Text(label, fontSize = 10.sp) },
                 alwaysShowLabel = true,
