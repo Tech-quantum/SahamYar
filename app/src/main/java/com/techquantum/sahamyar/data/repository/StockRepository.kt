@@ -83,7 +83,7 @@ class StockRepository {
 
     private fun <T : Any> Response<T>.requireBody(): T {
         if (!isSuccessful) {
-            throw IllegalStateException("خطای سرور: $code")
+            throw IllegalStateException("خطای سرور: ${code()}")
         }
         return body() ?: throw IllegalStateException("پاسخ سرور خالی است.")
     }
