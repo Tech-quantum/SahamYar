@@ -3,13 +3,19 @@ package com.techquantum.sahamyar
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.techquantum.sahamyar.ui.market.MarketViewModel
+import com.techquantum.sahamyar.ui.stockdetail.StockDetailScreen
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +66,11 @@ private fun SahamYarTheme(content: @Composable () -> Unit) {
 @Composable
 private fun DashboardScreen() {
     val selectedTab = remember { mutableIntStateOf(0) }
+    val selectedStockCode = remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = selectedStockCode.value != null) {
+        selectedStockCode.value = null
+    }
 
     Scaffold(
         containerColor = Background,
@@ -69,7 +80,13 @@ private fun DashboardScreen() {
     ) { padding ->
         val contentModifier = Modifier.fillMaxSize().padding(padding)
 
-        when (selectedTab.intValue) {
+        if (selectedStockCode.value != null) {
+            StockDetailScreen(
+                insCode = selectedStockCode.value!!,
+                modifier = contentModifier,
+                onBack = { selectedStockCode.value = null }
+            )
+        } else when (selectedTab.intValue) {
             0 -> Column(
                 modifier = contentModifier
                     .statusBarsPadding()
@@ -99,7 +116,7 @@ private fun DashboardScreen() {
                 QuickAccessCard("تحلیل هوشمند", "بررسی تکنیکال و تحلیل روند نمادها")
                 Spacer(Modifier.height(20.dp))
             }
-            1 -> MarketScreen(contentModifier)
+            1 -> MarketScreen(contentModifier) { selectedStockCode.value = it }
             else -> ComingSoonScreen(
                 listOf("خانه", "بازار", "دیده‌بان", "سبد", "بیشتر")[selectedTab.intValue],
                 contentModifier
@@ -108,8 +125,21 @@ private fun DashboardScreen() {
     }
 }
 
+
 @Composable
-private fun MarketScreen(modifier: Modifier = Modifier) {
+private fun MarketScreen(
+    modifier: Modifier = Modifier,
+    onStockSelected: (String) -> Unit
+) {
+    val marketViewModel: MarketViewModel = viewModel()
+    val searchState = marketViewModel.state.collectAsState().value
+    val selectedMarket = remember { androidx.compose.runtime.mutableStateOf("همه") }
+    val filters = listOf("همه", "بورس", "فرابورس")
+
+    val filteredItems = searchState.items.filter {
+        selectedMarket.value == "همه" || it.market == selectedMarket.value
+    }
+
     Column(
         modifier = modifier
             .statusBarsPadding()
@@ -124,24 +154,122 @@ private fun MarketScreen(modifier: Modifier = Modifier) {
         Spacer(Modifier.height(24.dp))
         SectionTitle("جستجوی نماد", "نام شرکت، نماد یا کد ابزار")
         Spacer(Modifier.height(12.dp))
-        Card(
+
+        OutlinedTextField(
+            value = searchState.query,
+            onValueChange = { marketViewModel.search(it) },
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            shape = RoundedCornerShape(14.dp)
-        ) {
-            Text(
-                "جستجوی نماد به‌زودی فعال می‌شود",
-                modifier = Modifier.padding(18.dp),
-                color = TextSecondary
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            placeholder = { Text("مثلاً فولاد یا فولاد مبارکه") },
+            label = { Text("جستجوی نماد") },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Orange,
+                focusedLabelColor = Orange,
+                cursorColor = Orange,
+                unfocusedBorderColor = SurfaceDark
             )
-        }
-        Spacer(Modifier.height(24.dp))
-        SectionTitle("فهرست نمادها", "پس از دریافت اطلاعات از سرویس")
-        Spacer(Modifier.height(12.dp))
-        EmptyStateCard(
-            "اطلاعات نمادی در دسترس نیست",
-            "پس از اتصال سرویس بازار، فهرست نمادها نمایش داده می‌شود."
         )
+
+        Spacer(Modifier.height(16.dp))
+        SectionTitle("محدوده بازار", null)
+        Spacer(Modifier.height(8.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            filters.forEach { filter ->
+                FilterChip(
+                    selected = selectedMarket.value == filter,
+                    onClick = { selectedMarket.value = filter },
+                    label = { Text(filter) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Orange.copy(alpha = 0.18f),
+                        selectedLabelColor = Orange
+                    )
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        SectionTitle("فهرست نمادها", selectedMarket.value)
+        Spacer(Modifier.height(12.dp))
+
+        when {
+            searchState.isLoading -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    color = Orange
+                )
+            }
+            searchState.error != null -> {
+                EmptyStateCard("خطا در دریافت اطلاعات", searchState.error!!)
+            }
+            searchState.query.length < 2 -> {
+                EmptyStateCard(
+                    "جستجوی نماد",
+                    "برای مشاهده نمادها، حداقل دو حرف از نام شرکت یا نماد را وارد کنید."
+                )
+            }
+            filteredItems.isEmpty() -> {
+                EmptyStateCard(
+                    "نتیجه‌ای پیدا نشد",
+                    "برای این جستجو نمادی در محدوده ${selectedMarket.value} دریافت نشد."
+                )
+            }
+            else -> {
+                filteredItems.forEach { stock ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                            .clickable { stock.ins_code?.let(onStockSelected) },
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stock.name ?: "نام شرکت نامشخص",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(Modifier.height(7.dp))
+                                Text(
+                                    "کد ابزار: ${stock.ins_code ?: "نامشخص"}",
+                                    color = TextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    stock.symbol ?: "بدون نماد",
+                                    color = Orange,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(7.dp))
+                                Surface(
+                                    color = Orange.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        stock.market ?: "بازار نامشخص",
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                        color = Orange,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
