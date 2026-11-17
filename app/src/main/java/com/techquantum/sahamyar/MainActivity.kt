@@ -23,10 +23,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLayoutDirection
+
+
+private val DastkhatFontFamily = FontFamily(
+    Font(R.font.dastkhat_variable, FontWeight.W100),
+    Font(R.font.dastkhat_variable, FontWeight.W200),
+    Font(R.font.dastkhat_variable, FontWeight.W300),
+    Font(R.font.dastkhat_variable, FontWeight.W400),
+    Font(R.font.dastkhat_variable, FontWeight.W500),
+    Font(R.font.dastkhat_variable, FontWeight.W600),
+    Font(R.font.dastkhat_variable, FontWeight.W700),
+    Font(R.font.dastkhat_variable, FontWeight.W800),
+    Font(R.font.dastkhat_variable, FontWeight.W900)
+)
 
 private val Background = Color(0xFF17191D)
 private val SurfaceDark = Color(0xFF252930)
@@ -52,6 +67,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SahamYarTheme(content: @Composable () -> Unit) {
     MaterialTheme(
+        typography = Typography(defaultFontFamily = DastkhatFontFamily),
         colorScheme = darkColorScheme(
             primary = Orange,
             background = Background,
