@@ -23,10 +23,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLayoutDirection
+
+
+private val DastkhatFontFamily = FontFamily(
+    Font(R.font.dastkhat_variable, FontWeight.W100),
+    Font(R.font.dastkhat_variable, FontWeight.W200),
+    Font(R.font.dastkhat_variable, FontWeight.W300),
+    Font(R.font.dastkhat_variable, FontWeight.W400),
+    Font(R.font.dastkhat_variable, FontWeight.W500),
+    Font(R.font.dastkhat_variable, FontWeight.W600),
+    Font(R.font.dastkhat_variable, FontWeight.W700),
+    Font(R.font.dastkhat_variable, FontWeight.W800),
+    Font(R.font.dastkhat_variable, FontWeight.W900)
+)
 
 private val Background = Color(0xFF17191D)
 private val SurfaceDark = Color(0xFF252930)
@@ -52,6 +67,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SahamYarTheme(content: @Composable () -> Unit) {
     MaterialTheme(
+        typography = Typography().let { base ->
+            base.copy(
+                displayLarge = base.displayLarge.copy(fontFamily = DastkhatFontFamily),
+                displayMedium = base.displayMedium.copy(fontFamily = DastkhatFontFamily),
+                displaySmall = base.displaySmall.copy(fontFamily = DastkhatFontFamily),
+                headlineLarge = base.headlineLarge.copy(fontFamily = DastkhatFontFamily),
+                headlineMedium = base.headlineMedium.copy(fontFamily = DastkhatFontFamily),
+                headlineSmall = base.headlineSmall.copy(fontFamily = DastkhatFontFamily),
+                titleLarge = base.titleLarge.copy(fontFamily = DastkhatFontFamily),
+                titleMedium = base.titleMedium.copy(fontFamily = DastkhatFontFamily),
+                titleSmall = base.titleSmall.copy(fontFamily = DastkhatFontFamily),
+                bodyLarge = base.bodyLarge.copy(fontFamily = DastkhatFontFamily),
+                bodyMedium = base.bodyMedium.copy(fontFamily = DastkhatFontFamily),
+                bodySmall = base.bodySmall.copy(fontFamily = DastkhatFontFamily),
+                labelLarge = base.labelLarge.copy(fontFamily = DastkhatFontFamily),
+                labelMedium = base.labelMedium.copy(fontFamily = DastkhatFontFamily),
+                labelSmall = base.labelSmall.copy(fontFamily = DastkhatFontFamily)
+            )
+        },
         colorScheme = darkColorScheme(
             primary = Orange,
             background = Background,
