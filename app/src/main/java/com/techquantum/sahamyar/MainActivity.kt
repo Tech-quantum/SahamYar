@@ -67,7 +67,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SahamYarTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        typography = Typography(defaultFontFamily = DastkhatFontFamily),
+        typography = Typography().let { base ->
+            base.copy(
+                displayLarge = base.displayLarge.copy(fontFamily = DastkhatFontFamily),
+                displayMedium = base.displayMedium.copy(fontFamily = DastkhatFontFamily),
+                displaySmall = base.displaySmall.copy(fontFamily = DastkhatFontFamily),
+                headlineLarge = base.headlineLarge.copy(fontFamily = DastkhatFontFamily),
+                headlineMedium = base.headlineMedium.copy(fontFamily = DastkhatFontFamily),
+                headlineSmall = base.headlineSmall.copy(fontFamily = DastkhatFontFamily),
+                titleLarge = base.titleLarge.copy(fontFamily = DastkhatFontFamily),
+                titleMedium = base.titleMedium.copy(fontFamily = DastkhatFontFamily),
+                titleSmall = base.titleSmall.copy(fontFamily = DastkhatFontFamily),
+                bodyLarge = base.bodyLarge.copy(fontFamily = DastkhatFontFamily),
+                bodyMedium = base.bodyMedium.copy(fontFamily = DastkhatFontFamily),
+                bodySmall = base.bodySmall.copy(fontFamily = DastkhatFontFamily),
+                labelLarge = base.labelLarge.copy(fontFamily = DastkhatFontFamily),
+                labelMedium = base.labelMedium.copy(fontFamily = DastkhatFontFamily),
+                labelSmall = base.labelSmall.copy(fontFamily = DastkhatFontFamily)
+            )
+        },
         colorScheme = darkColorScheme(
             primary = Orange,
             background = Background,
