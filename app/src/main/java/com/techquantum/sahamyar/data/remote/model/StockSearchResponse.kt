@@ -14,5 +14,8 @@ data class StockSearchItem(
     val name: String?,
     val isin: String?,
     val market_flow: Int?,
-    val market: String?
+    val market: String?,
+    val instrument_type: String? = null,
+    val instrument_category: String? = null,
+    val instrument_category_label: String? = null
 )

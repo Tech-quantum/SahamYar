@@ -21,7 +21,18 @@ data class StockDetailItem(
     val min_week: Long?,
     val max_week: Long?,
     val min_year: Long?,
-    val max_year: Long?
+    val max_year: Long?,
+    val instrument_type: String? = null,
+    val instrument_category: String? = null,
+    val instrument_category_label: String? = null,
+    val average_volume: Long? = null,
+    val fundamentals: StockFundamentals? = null
+)
+
+data class StockFundamentals(
+    val eps_actual: Double? = null,
+    val eps_estimated: Double? = null,
+    val sector_pe: Double? = null
 )
 
 data class StockPriceResponse(

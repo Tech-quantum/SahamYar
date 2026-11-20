@@ -8,6 +8,9 @@ class StockSearchItem(BaseModel):
     isin: str | None = None
     market_flow: int | None = None
     market: str | None = None
+    instrument_type: str | None = None
+    instrument_category: str | None = None
+    instrument_category_label: str | None = None
     raw: dict = Field(default_factory=dict)
 
 
