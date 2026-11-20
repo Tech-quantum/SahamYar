@@ -15,7 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.techquantum.sahamyar.ui.market.MarketViewModel
+import com.techquantum.sahamyar.ui.watchlist.WatchlistScreen
+import com.techquantum.sahamyar.ui.watchlist.WatchlistViewModel
 import com.techquantum.sahamyar.ui.stockdetail.StockDetailScreen
+import com.techquantum.sahamyar.data.remote.model.StockSearchItem
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -97,13 +100,19 @@ private fun SahamYarTheme(content: @Composable () -> Unit) {
     )
 }
 
+private data class SelectedInstrument(
+    val insCode: String,
+    val category: String?,
+    val categoryLabel: String?
+)
+
 @Composable
 private fun DashboardScreen() {
     val selectedTab = remember { mutableIntStateOf(0) }
-    val selectedStockCode = remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val selectedInstrument = remember { androidx.compose.runtime.mutableStateOf<SelectedInstrument?>(null) }
 
-    BackHandler(enabled = selectedStockCode.value != null) {
-        selectedStockCode.value = null
+    BackHandler(enabled = selectedInstrument.value != null) {
+        selectedInstrument.value = null
     }
 
     Scaffold(
@@ -114,11 +123,14 @@ private fun DashboardScreen() {
     ) { padding ->
         val contentModifier = Modifier.fillMaxSize().padding(padding)
 
-        if (selectedStockCode.value != null) {
+        if (selectedInstrument.value != null) {
+            val selected = selectedInstrument.value!!
             StockDetailScreen(
-                insCode = selectedStockCode.value!!,
+                insCode = selected.insCode,
+                instrumentCategory = selected.category,
+                instrumentCategoryLabel = selected.categoryLabel,
                 modifier = contentModifier,
-                onBack = { selectedStockCode.value = null }
+                onBack = { selectedInstrument.value = null }
             )
         } else when (selectedTab.intValue) {
             0 -> Column(
@@ -146,13 +158,21 @@ private fun DashboardScreen() {
                 Spacer(Modifier.height(12.dp))
                 QuickAccessCard("جستجوی نماد", "جستجو در شرکت‌های بورس و فرابورس")
                 QuickAccessCard("دیده‌بان من", "پیگیری نمادها و هشدارهای قیمتی")
-                QuickAccessCard("سبد سرمایه‌گذاری", "مدیریت دارایی و محاسبه سود و زیان")
                 QuickAccessCard("تحلیل هوشمند", "بررسی تکنیکال و تحلیل روند نمادها")
                 Spacer(Modifier.height(20.dp))
             }
-            1 -> MarketScreen(contentModifier) { selectedStockCode.value = it }
+            1 -> MarketScreen(contentModifier) { stock ->
+                stock.ins_code?.takeIf { it.isNotBlank() }?.let { code ->
+                    selectedInstrument.value = SelectedInstrument(
+                        code, stock.instrument_category, stock.instrument_category_label
+                    )
+                }
+            }
+            2 -> WatchlistScreen(contentModifier) { code ->
+                selectedInstrument.value = SelectedInstrument(code, null, null)
+            }
             else -> ComingSoonScreen(
-                listOf("خانه", "بازار", "دیده‌بان", "سبد", "بیشتر")[selectedTab.intValue],
+                listOf("خانه", "بازار", "دیده‌بان", "تحلیل‌ها", "بیشتر")[selectedTab.intValue],
                 contentModifier
             )
         }
@@ -163,15 +183,23 @@ private fun DashboardScreen() {
 @Composable
 private fun MarketScreen(
     modifier: Modifier = Modifier,
-    onStockSelected: (String) -> Unit
+    onStockSelected: (StockSearchItem) -> Unit
 ) {
     val marketViewModel: MarketViewModel = viewModel()
+    val watchlistViewModel: WatchlistViewModel = viewModel()
+    val addResult = watchlistViewModel.addResult.collectAsState().value
     val searchState = marketViewModel.state.collectAsState().value
     val selectedMarket = remember { androidx.compose.runtime.mutableStateOf("همه") }
+    val selectedCategory = remember { androidx.compose.runtime.mutableStateOf("همه") }
     val filters = listOf("همه", "بورس", "فرابورس")
+    val categoryFilters = listOf(
+        "همه", "سهام", "صندوق", "اوراق بدهی", "حق‌تقدم", "سایر"
+    )
 
-    val filteredItems = searchState.items.filter {
-        selectedMarket.value == "همه" || it.market == selectedMarket.value
+    val filteredItems = searchState.items.filter { stock ->
+        (selectedMarket.value == "همه" || stock.market == selectedMarket.value) &&
+            (selectedCategory.value == "همه" ||
+                stock.instrument_category_label == selectedCategory.value)
     }
 
     Column(
@@ -223,8 +251,32 @@ private fun MarketScreen(
             }
         }
 
+        Spacer(Modifier.height(16.dp))
+        SectionTitle("نوع ابزار", null)
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categoryFilters.forEach { filter ->
+                FilterChip(
+                    selected = selectedCategory.value == filter,
+                    onClick = { selectedCategory.value = filter },
+                    label = { Text(filter) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Orange.copy(alpha = 0.18f),
+                        selectedLabelColor = Orange
+                    )
+                )
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
-        SectionTitle("فهرست نمادها", selectedMarket.value)
+        SectionTitle(
+            "فهرست ابزارها",
+            "${selectedMarket.value} • ${selectedCategory.value}"
+        )
         Spacer(Modifier.height(12.dp))
 
         when {
@@ -246,7 +298,7 @@ private fun MarketScreen(
             filteredItems.isEmpty() -> {
                 EmptyStateCard(
                     "نتیجه‌ای پیدا نشد",
-                    "برای این جستجو نمادی در محدوده ${selectedMarket.value} دریافت نشد."
+                    "برای این جستجو ابزاری با فیلترهای انتخاب‌شده دریافت نشد."
                 )
             }
             else -> {
@@ -255,7 +307,7 @@ private fun MarketScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 10.dp)
-                            .clickable { stock.ins_code?.let(onStockSelected) },
+                            .clickable { if (!stock.ins_code.isNullOrBlank()) onStockSelected(stock) },
                         color = SurfaceDark,
                         shape = RoundedCornerShape(16.dp)
                     ) {
@@ -296,6 +348,44 @@ private fun MarketScreen(
                                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                                         color = Orange,
                                         fontSize = 11.sp
+                                    )
+                                }
+                                Spacer(Modifier.height(5.dp))
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.07f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        stock.instrument_category_label ?: "نوع نامشخص",
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                        color = TextSecondary,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        val code = stock.ins_code
+                                        val symbol = stock.symbol
+                                        if (!code.isNullOrBlank() && !symbol.isNullOrBlank()) {
+                                            watchlistViewModel.addStock(
+                                                code, symbol, stock.name, stock.market
+                                            )
+                                        }
+                                    },
+                                    enabled = !stock.ins_code.isNullOrBlank() &&
+                                        !stock.symbol.isNullOrBlank(),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = Orange
+                                    )
+                                ) {
+                                    Text("☆ افزودن")
+                                }
+                                addResult?.takeIf { it.insCode == stock.ins_code }?.let { result ->
+                                    Text(
+                                        result.message,
+                                        color = if (result.success) Color(0xFF16C784)
+                                                else TextSecondary,
+                                        fontSize = 10.sp
                                     )
                                 }
                             }
@@ -492,7 +582,7 @@ private fun BottomNavigationBar(
     onItemSelected: (Int) -> Unit
 ) {
     NavigationBar(containerColor = SurfaceDark, contentColor = Orange) {
-        val items = listOf("خانه", "بازار", "دیده‌بان", "سبد", "بیشتر")
+        val items = listOf("خانه", "بازار", "دیده‌بان", "تحلیل‌ها", "بیشتر")
         val symbols = listOf("⌂", "▥", "☆", "▣", "⋯")
         items.forEachIndexed { index, label ->
             NavigationBarItem(

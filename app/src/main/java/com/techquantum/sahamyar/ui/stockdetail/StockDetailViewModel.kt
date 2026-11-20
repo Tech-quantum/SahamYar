@@ -23,30 +23,50 @@ class StockDetailViewModel : ViewModel() {
     val state: StateFlow<StockDetailState> = _state.asStateFlow()
 
     private var loadedInsCode: String? = null
+    private var loadedCategory: String? = null
+    private var loadedCategoryLabel: String? = null
     private var activeRequestId = 0L
     private var activeJob: Job? = null
 
-    fun loadStock(insCode: String, forceRefresh: Boolean = false) {
+    fun loadStock(
+        insCode: String,
+        instrumentCategory: String? = null,
+        instrumentCategoryLabel: String? = null,
+        forceRefresh: Boolean = false
+    ) {
         if (insCode.isBlank()) {
             activeRequestId++
             activeJob?.cancel()
             activeJob = null
             loadedInsCode = null
+            loadedCategory = null
+            loadedCategoryLabel = null
             _state.value = StockDetailState(error = "کد نماد معتبر نیست.")
             return
         }
 
-        if (!forceRefresh && loadedInsCode == insCode && _state.value.data != null) {
+        if (
+            !forceRefresh && loadedInsCode == insCode &&
+            loadedCategory == instrumentCategory &&
+            loadedCategoryLabel == instrumentCategoryLabel &&
+            _state.value.data != null
+        ) {
             return
         }
 
         activeJob?.cancel()
         val requestId = ++activeRequestId
         loadedInsCode = insCode
+        loadedCategory = instrumentCategory
+        loadedCategoryLabel = instrumentCategoryLabel
         _state.value = StockDetailState(isLoading = true)
 
         activeJob = viewModelScope.launch {
-            val result = repository.getStockOverview(insCode)
+            val result = repository.getStockOverview(
+                insCode,
+                instrumentCategoryOverride = instrumentCategory,
+                instrumentCategoryLabelOverride = instrumentCategoryLabel
+            )
 
             if (requestId != activeRequestId) return@launch
 

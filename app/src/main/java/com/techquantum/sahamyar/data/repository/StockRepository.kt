@@ -13,9 +13,11 @@ import retrofit2.Response
 
 data class StockOverviewData(
     val detail: StockDetailResponse,
-    val analysis: StockAnalysisResponse,
-    val prices: StockPriceResponse,
-    val history: StockHistoryResponse
+    val analysis: StockAnalysisResponse?,
+    val prices: StockPriceResponse?,
+    val history: StockHistoryResponse?,
+    val instrumentCategory: String?,
+    val instrumentCategoryLabel: String?
 )
 
 class StockRepository {
@@ -41,6 +43,8 @@ class StockRepository {
 
     suspend fun getStockOverview(
         insCode: String,
+        instrumentCategoryOverride: String? = null,
+        instrumentCategoryLabelOverride: String? = null,
         historyCount: Int = 365,
         analysisCount: Int = 365
     ): Result<StockOverviewData> {
@@ -57,20 +61,41 @@ class StockRepository {
 
         return try {
             val overview = coroutineScope {
-                val detail = async { api.getStockDetail(insCode).requireBody() }
-                val prices = async { api.getStockPrices(insCode).requireBody() }
-                val analysis = async {
-                    api.getStockAnalysis(insCode, analysisCount).requireBody()
+                val detail = api.getStockDetail(insCode).requireBody()
+                val category = instrumentCategoryOverride
+                    ?: detail.item?.instrument_category
+                val categoryLabel = instrumentCategoryLabelOverride
+                    ?: detail.item?.instrument_category_label
+                val supportsStockTechnical =
+                    category == "COMMON_STOCK" || category == "RIGHTS"
+
+                val prices = async {
+                    if (supportsStockTechnical) {
+                        optionalRequest { api.getStockPrices(insCode).requireBody() }
+                    } else null
                 }
                 val history = async {
-                    api.getStockHistory(insCode, historyCount).requireBody()
+                    if (supportsStockTechnical) {
+                        optionalRequest {
+                            api.getStockHistory(insCode, historyCount).requireBody()
+                        }
+                    } else null
+                }
+                val analysis = async {
+                    if (supportsStockTechnical) {
+                        optionalRequest {
+                            api.getStockAnalysis(insCode, analysisCount).requireBody()
+                        }
+                    } else null
                 }
 
                 StockOverviewData(
-                    detail = detail.await(),
+                    detail = detail,
                     analysis = analysis.await(),
                     prices = prices.await(),
-                    history = history.await()
+                    history = history.await(),
+                    instrumentCategory = category,
+                    instrumentCategoryLabel = categoryLabel
                 )
             }
             Result.success(overview)
@@ -78,6 +103,16 @@ class StockRepository {
             throw e
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private suspend fun <T> optionalRequest(request: suspend () -> T): T? {
+        return try {
+            request()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
         }
     }
 
