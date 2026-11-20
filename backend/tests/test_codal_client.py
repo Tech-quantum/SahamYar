@@ -171,3 +171,26 @@ def test_invalid_constructor_arguments():
         CodalClient(max_retries=-1)
     with pytest.raises(ValueError):
         CodalClient(timeout=0)
+
+
+def test_get_report_html_follows_safe_redirect():
+    def handler(request):
+        if request.url.path == "/Reports/Decision.aspx":
+            return httpx.Response(
+                302, headers={"location": "/Reports/InterimStatement.aspx?x=1"}
+            )
+        return httpx.Response(200, text="<html>final</html>")
+
+    client, http = make_client(handler)
+    assert client.get_report_html("/Reports/Decision.aspx?x=1") == "<html>final</html>"
+    http.close()
+
+
+def test_get_report_html_rejects_redirect_to_foreign_host():
+    def handler(request):
+        return httpx.Response(302, headers={"location": "https://evil.example.com/x"})
+
+    client, http = make_client(handler)
+    with pytest.raises(ValueError):
+        client.get_report_html("/Reports/Decision.aspx?x=1")
+    http.close()

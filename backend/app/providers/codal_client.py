@@ -12,6 +12,7 @@ CODAL_SEARCH_BASE_URL = "https://search.codal.ir"
 CODAL_REPORT_BASE_URL = "https://codal.ir"
 CODAL_ALLOWED_HOST_SUFFIX = "codal.ir"
 MAX_REPORT_BYTES = 5 * 1024 * 1024
+MAX_REDIRECTS = 3
 
 _COMPANIES_PATH = "/api/search/v1/companies"
 _SEARCH_PATH = "/api/search/v2/q"
@@ -81,7 +82,12 @@ class CodalClient:
             self._client.close()
             self._client = None
 
-    def _get(self, url: str, params: dict[str, Any] | None = None) -> httpx.Response:
+    def _get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        allow_redirect: bool = False,
+    ) -> httpx.Response:
         if self._client is None:
             self.start()
         assert self._client is not None
@@ -104,6 +110,9 @@ class CodalClient:
                     if attempt < self._max_retries:
                         time.sleep(min(2 ** attempt, 5))
                         continue
+
+                if allow_redirect and 300 <= response.status_code < 400:
+                    return response
 
                 response.raise_for_status()
                 return response
@@ -227,8 +236,17 @@ class CodalClient:
 
     def get_report_html(self, url: str) -> str:
         """Fetch the HTML of one report; the URL comes from search_letters."""
-        absolute = self.resolve_report_url(url)
-        response = self._get(absolute)
+        current = self.resolve_report_url(url)
+        for _ in range(MAX_REDIRECTS + 1):
+            response = self._get(current, allow_redirect=True)
+            if not 300 <= response.status_code < 400:
+                break
+            location = response.headers.get("location")
+            if not location:
+                raise ProviderSchemaError("Codal redirect has no Location header.")
+            current = self.resolve_report_url(urljoin(current, location))
+        else:
+            raise ProviderSchemaError("Codal report redirected too many times.")
         if len(response.content) > MAX_REPORT_BYTES:
             raise ProviderSchemaError("Codal report is larger than the allowed size.")
         text = response.text
