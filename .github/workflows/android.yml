@@ -56,7 +56,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v4
@@ -67,7 +66,7 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug
+        run: ./gradlew :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
