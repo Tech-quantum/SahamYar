@@ -168,9 +168,9 @@ private fun DashboardScreen() {
                     )
                 }
             }
-            2 -> WatchlistScreen(contentModifier) { code ->
+            2 -> WatchlistScreen(modifier = contentModifier, onStockSelected = { code ->
                 selectedInstrument.value = SelectedInstrument(code, null, null)
-            }
+            })
             else -> ComingSoonScreen(
                 listOf("خانه", "بازار", "دیده‌بان", "تحلیل‌ها", "بیشتر")[selectedTab.intValue],
                 contentModifier
