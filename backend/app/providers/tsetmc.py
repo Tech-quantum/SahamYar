@@ -1,4 +1,5 @@
 import copy
+from decimal import Decimal, InvalidOperation
 import math
 import re
 import threading
@@ -12,6 +13,43 @@ import httpx
 
 from app.config import settings
 from app.errors import ProviderSchemaError, ProviderUnavailable
+
+
+def _require_non_empty_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"A non-empty {field_name} string is required.")
+    return value.strip()
+
+
+def _safe_integer(value: Any, *, non_negative: bool = False) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", "")
+            if not value:
+                return None
+        number = Decimal(str(value))
+        if not number.is_finite() or number != number.to_integral_value():
+            return None
+        result = int(number)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        return None
+    if not -(2**63) <= result <= 2**63 - 1:
+        return None
+    if non_negative and result < 0:
+        return None
+    return result
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _finite_number(value: Any) -> float | None:
@@ -162,9 +200,15 @@ class TsetmcClient:
                     self._last_request_at = time.monotonic()
 
                 if response.status_code in (429, 500, 502, 503, 504):
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        last_error = exc
+
                     if attempt < self._max_retries:
                         time.sleep(min(2 ** attempt, 5))
                         continue
+                    break
 
                 response.raise_for_status()
 
@@ -184,7 +228,10 @@ class TsetmcClient:
 
             except ProviderSchemaError:
                 raise
-            except (httpx.HTTPError, TimeoutError) as exc:
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                break
+            except (httpx.TransportError, TimeoutError) as exc:
                 last_error = exc
                 if attempt < self._max_retries:
                     time.sleep(min(2 ** attempt, 5))
@@ -222,8 +269,9 @@ class TsetmcClient:
         return instrument_type, "OTHER", "سایر"
 
     def search_instruments(self, query: str) -> list[dict[str, Any]]:
+        query = _require_non_empty_string(query, "search query")
         normalized_query = (
-            query.strip()
+            query
             .replace("ی", "ي")
             .replace("ک", "ك")
         )
@@ -266,8 +314,9 @@ class TsetmcClient:
 
     def get_instrument_info(self, ins_code: str) -> dict[str, Any]:
         """Fetch and normalize detailed information for one instrument."""
+        code = _require_non_empty_string(ins_code, "instrument code")
         payload = self._get_json(
-            f"Instrument/GetInstrumentInfo/{quote(ins_code.strip(), safe='')}"
+            f"Instrument/GetInstrumentInfo/{quote(code, safe='')}"
         )
         info = payload.get("instrumentInfo")
 
@@ -327,8 +376,9 @@ class TsetmcClient:
 
     def get_closing_price_info(self, ins_code: str) -> dict[str, Any]:
         """Fetch the latest trading and closing price information."""
+        code = _require_non_empty_string(ins_code, "instrument code")
         payload = self._get_json(
-            f"ClosingPrice/GetClosingPriceInfo/{quote(ins_code.strip(), safe='')}"
+            f"ClosingPrice/GetClosingPriceInfo/{quote(code, safe='')}"
         )
         info = payload.get("closingPriceInfo")
 
@@ -340,22 +390,22 @@ class TsetmcClient:
         state = info.get("instrumentState")
 
         return {
-            "ins_code": ins_code.strip(),
-            "date": info.get("finalLastDate"),
-            "closing_price": info.get("pClosing"),
-            "last_price": info.get("pDrCotVal"),
-            "first_price": info.get("priceFirst"),
-            "min_price": info.get("priceMin"),
-            "max_price": info.get("priceMax"),
-            "yesterday_price": info.get("priceYesterday"),
-            "trade_count": info.get("zTotTran"),
-            "volume": info.get("qTotTran5J"),
-            "value": info.get("qTotCap"),
+            "ins_code": code,
+            "date": _safe_integer(info.get("finalLastDate"), non_negative=True),
+            "closing_price": _safe_integer(info.get("pClosing"), non_negative=True),
+            "last_price": _safe_integer(info.get("pDrCotVal"), non_negative=True),
+            "first_price": _safe_integer(info.get("priceFirst"), non_negative=True),
+            "min_price": _safe_integer(info.get("priceMin"), non_negative=True),
+            "max_price": _safe_integer(info.get("priceMax"), non_negative=True),
+            "yesterday_price": _safe_integer(info.get("priceYesterday"), non_negative=True),
+            "trade_count": _safe_integer(info.get("zTotTran"), non_negative=True),
+            "volume": _safe_integer(info.get("qTotTran5J"), non_negative=True),
+            "value": _safe_integer(info.get("qTotCap"), non_negative=True),
             "state": (
                 state.get("cEtavalTitle")
                 if isinstance(state, dict) else None
             ),
-            "raw": info,
+            "raw": _json_safe(info),
         }
 
     def get_daily_prices(
@@ -367,10 +417,7 @@ class TsetmcClient:
         if not 1 <= count <= 365:
             raise ValueError("Daily price count must be between 1 and 365.")
 
-        if not isinstance(ins_code, str) or not ins_code.strip():
-            raise ValueError("A non-empty instrument code is required.")
-
-        code = ins_code.strip()
+        code = _require_non_empty_string(ins_code, "instrument code")
 
         def cached_history():
             if self._history_cache_ttl == 0:
@@ -423,18 +470,18 @@ class TsetmcClient:
                         continue
 
                     item = {
-                        "date": row.get("dEven"),
-                        "change": row.get("priceChange"),
-                        "closing_price": row.get("pClosing"),
-                        "last_price": row.get("pDrCotVal"),
-                        "first_price": row.get("priceFirst"),
-                        "min_price": row.get("priceMin"),
-                        "max_price": row.get("priceMax"),
-                        "yesterday_price": row.get("priceYesterday"),
-                        "trade_count": row.get("zTotTran"),
-                        "volume": row.get("qTotTran5J"),
-                        "value": row.get("qTotCap"),
-                        "raw": row,
+                        "date": _safe_integer(row.get("dEven"), non_negative=True),
+                        "change": _safe_integer(row.get("priceChange")),
+                        "closing_price": _safe_integer(row.get("pClosing"), non_negative=True),
+                        "last_price": _safe_integer(row.get("pDrCotVal"), non_negative=True),
+                        "first_price": _safe_integer(row.get("priceFirst"), non_negative=True),
+                        "min_price": _safe_integer(row.get("priceMin"), non_negative=True),
+                        "max_price": _safe_integer(row.get("priceMax"), non_negative=True),
+                        "yesterday_price": _safe_integer(row.get("priceYesterday"), non_negative=True),
+                        "trade_count": _safe_integer(row.get("zTotTran"), non_negative=True),
+                        "volume": _safe_integer(row.get("qTotTran5J"), non_negative=True),
+                        "value": _safe_integer(row.get("qTotCap"), non_negative=True),
+                        "raw": _json_safe(row),
                     }
 
                     date_text = (

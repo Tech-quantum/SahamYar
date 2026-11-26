@@ -1,3 +1,4 @@
+import json
 import time
 import httpx
 import pytest
@@ -441,6 +442,7 @@ def test_daily_prices_cache_prevents_duplicate_concurrent_requests():
     assert len(results) == 5
     assert calls == 1
     assert all(result[0]["closing_price"] == 140 for result in results)
+    assert provider._history_key_locks == {}
 
     client.close()
 
@@ -471,6 +473,24 @@ def test_daily_prices_rejects_empty_instrument_code(ins_code):
 
     with pytest.raises(ValueError, match="instrument code"):
         provider.get_daily_prices(ins_code)
+
+
+@pytest.mark.parametrize("invalid", [None, 123, [], {}, "", "   "])
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "search_instruments",
+        "get_instrument_info",
+        "get_closing_price_info",
+        "get_daily_prices",
+    ],
+)
+def test_public_methods_reject_invalid_string_inputs(method_name, invalid):
+    provider = TsetmcClient(min_interval=0, max_retries=0)
+    method = getattr(provider, method_name)
+
+    with pytest.raises(ValueError):
+        method(invalid)
 
 
 def test_client_uses_configured_default_interval_and_retries(monkeypatch):
@@ -632,3 +652,158 @@ def test_get_json_rejects_unsafe_paths_before_request(path):
         assert calls == []
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("status_code", [401, 404])
+def test_client_does_not_retry_permanent_http_errors(status_code, monkeypatch):
+    import app.providers.tsetmc as tsetmc_module
+
+    calls = 0
+
+    def handler(_):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status_code)
+
+    monkeypatch.setattr(tsetmc_module.time, "sleep", lambda _: None)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = TsetmcClient(http_client=client, min_interval=0, max_retries=3)
+
+    try:
+        with pytest.raises(ProviderUnavailable):
+            provider._get_json("test")
+        assert calls == 1
+    finally:
+        client.close()
+
+
+def test_daily_prices_releases_key_lock_after_request_failure():
+    from app.errors import ProviderUnavailable
+
+    def handler(_):
+        return httpx.Response(503)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = TsetmcClient(
+        http_client=client,
+        min_interval=0,
+        max_retries=0,
+    )
+
+    try:
+        with pytest.raises(ProviderUnavailable):
+            provider.get_daily_prices("123456789", 1)
+
+        assert provider._history_key_locks == {}
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 502, 504])
+def test_client_retries_transient_http_statuses(status_code, monkeypatch):
+    import app.providers.tsetmc as tsetmc_module
+
+    calls = 0
+
+    def handler(_):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(status_code)
+        return httpx.Response(200, json={"status": "ok"})
+
+    monkeypatch.setattr(tsetmc_module.time, "sleep", lambda _: None)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = TsetmcClient(
+        http_client=client,
+        min_interval=0,
+        max_retries=1,
+    )
+
+    try:
+        result = provider._get_json("test")
+    finally:
+        client.close()
+
+    assert result == {"status": "ok"}
+    assert calls == 2
+
+
+def test_closing_price_info_rejects_invalid_numeric_values_and_sanitizes_raw():
+    def handler(_):
+        return httpx.Response(200, content=json.dumps({
+            "closingPriceInfo": {
+                "finalLastDate": 20261114,
+                "pClosing": -1,
+                "pDrCotVal": 12.5,
+                "priceFirst": float("nan"),
+                "priceMin": float("inf"),
+                "priceMax": "NaN",
+                "priceYesterday": 2**63,
+                "zTotTran": True,
+                "qTotTran5J": -10,
+                "qTotCap": 20568684791350,
+                "future_field": "preserved",
+            }
+        }, allow_nan=True).encode(), headers={"Content-Type": "application/json"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = TsetmcClient(http_client=client, min_interval=0, max_retries=0)
+    try:
+        result = provider.get_closing_price_info("123456789")
+    finally:
+        client.close()
+
+    for field in (
+        "closing_price", "last_price", "first_price", "min_price",
+        "max_price", "yesterday_price", "trade_count", "volume",
+    ):
+        assert result[field] is None
+
+    assert result["value"] == 20568684791350
+    assert result["raw"]["priceFirst"] is None
+    assert result["raw"]["priceMin"] is None
+    assert result["raw"]["future_field"] == "preserved"
+
+
+def test_daily_prices_rejects_invalid_numeric_values_and_sanitizes_raw():
+    def handler(_):
+        return httpx.Response(200, content=json.dumps({
+            "closingPriceDaily": [{
+                "dEven": 20261114,
+                "priceChange": 12.5,
+                "pClosing": -1,
+                "pDrCotVal": float("inf"),
+                "priceFirst": "12.5",
+                "priceMin": True,
+                "priceMax": 2**63,
+                "priceYesterday": 4950,
+                "zTotTran": -1,
+                "qTotTran5J": 4097617753,
+                "qTotCap": float("nan"),
+                "future_field": "preserved",
+            }]
+        }, allow_nan=True).encode(), headers={"Content-Type": "application/json"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = TsetmcClient(http_client=client, min_interval=0, max_retries=0)
+    try:
+        result = provider.get_daily_prices("123456789", 5)
+    finally:
+        client.close()
+
+    assert len(result) == 1
+    item = result[0]
+
+    for field in (
+        "change", "closing_price", "last_price", "first_price",
+        "min_price", "max_price", "trade_count", "value",
+    ):
+        assert item[field] is None
+
+    assert item["date"] == 20261114
+    assert item["yesterday_price"] == 4950
+    assert item["volume"] == 4097617753
+    assert item["raw"]["pDrCotVal"] is None
+    assert item["raw"]["qTotCap"] is None
+    assert item["raw"]["future_field"] == "preserved"
