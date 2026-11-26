@@ -1,0 +1,51 @@
+سهام‌یار — وضعیت پروژه (هم‌تراز با کد و مستندات)
+آخرین به‌روزرسانی مستندات: ۱۴۰۵/۰۹/۰۵ (2026-11-26)
+مرجع کد commitشده: شاخه main مخزن GitHub — snapshot بررسی‌شده: 97107538c42fb0548a367971c540591efc6d663d
+مرجع پیشرفت محلی گزارش‌شده: worktree Termux (~/SahamYar/repo-check)
+
+۱) دامنه محصول
+- تحلیل‌گر هوشمند بازار سرمایه ایران: بازار، نماد، تکنیکال، بنیادی، اخبار/ریسک‌ها و جمع‌بندی استدلالی.
+- خارج از دامنه فعلی: مدیریت پرتفوی شخصی، ثبت معاملات، بهای تمام‌شده، سود/زیان شخصی، ورود از Excel، ارسال سفارش خودکار.
+
+۲) معماری
+- Android: Kotlin، Jetpack Compose، Retrofit.
+- Backend: Python/Flask، pytest.
+- داده بازار: TSETMC.
+- صورت‌های مالی: Codal (در main فعلاً فقط parser آفلاین).
+- توسعه/تست بک‌اند فعلاً محلی (Termux)؛ استقرار اینترنتی موکول به مرحله نهایی.
+
+۳) آنچه روی main (GitHub) تأیید شده است
+بک‌اند:
+- جست‌وجو، مشخصات، قیمت و تاریخچه روزانه TSETMC.
+- طبقه‌بندی ابزار: COMMON_STOCK، RIGHTS، FUND، DEBT، OTHER.
+- تحلیل تکنیکال برای سهام عادی و حق‌تقدم: SMA، EMA، RSI، MACD.
+- کش قیمت و PriceRefreshScheduler (شروع فقط در __main__).
+- providers/codal.py: پارس HTML پنج صورت مالی و standardize_financial_report بدون حدس معیار مبهم.
+- GET /api/v1/stocks/<ins_code>/analysis لایه fundamental را ثابت UNAVAILABLE برمی‌گرداند.
+- در main.py هیچ route مربوط به /api/v1/codal یا financial-reports وجود ندارد.
+- کلاینت HTTP Codal و financial_service در درخت main یافت نشد.
+
+اندروید (main):
+- مدل StockAnalysisResponse با AnalysisLayers / StockLayer / AnalysisLayer موجود است.
+- فایل‌های Android شامل ApiClient.kt، StockApiService.kt، StockRepository.kt و مدل‌های پاسخ در main وجود دارند.
+- ApiClient.kt در main از http://127.0.0.1:8000/ استفاده می‌کند؛ این اتصال برای APK مستقل/قابل‌توزیع مناسب نیست و باید پیش از انتشار تعیین تکلیف شود.
+- StockAnalysisResponse.kt در main فیلد data ندارد.
+- TsetmcMarketApi.kt در جست‌وجوی کد main یافت نشد؛ اتصال مستقیم TSETMC اندروید فقط پیشرفت محلی گزارش‌شده است.
+
+۴) پیشرفت گزارش‌شده محلی (تأیید روی main نشده)
+- اتصال مستقیم TSETMC در اندروید برای جست‌وجو، مشخصات، قیمت، تاریخچه و شاخص‌های تکنیکال.
+- ساخت موفق compileDebugKotlin و assembleDebug و تأیید کاربر روی APK.
+- در ارزیابی هوشمند فقط لایه تکنیکال سهام داده دارد؛ بقیه «منبع متصل نیست».
+- ادعا درباره سرویس Codal و endpointهای financial-reports در بک‌اند محلی؛ باید با git status و خواندن فایل‌ها روی دستگاه تأیید شود.
+
+۵) اصول داده
+- داده ناموجود را صفر نکن.
+- واقعیت منبع، محاسبه قطعی و تفسیر مدل را جدا نگه دار.
+- وضعیت‌های صریح: AVAILABLE، PARTIAL، UNAVAILABLE، INSUFFICIENT_DATA، NOT_SUPPORTED، ERROR.
+- داده کش‌شده باید زمان داشته باشد.
+
+۶) کنترل Git
+- پیش از هر کار: git status --short و در صورت نیاز git diff.
+- هیچ فایل محلی پاک یا بازنویسی بی‌پشتیبان نشود.
+- دستورات مخرب Git بدون اجازه ممنوع است.
+- انتقال این مستندات روی شاخه مستقل انجام شده؛ main تغییر نکرده است.
