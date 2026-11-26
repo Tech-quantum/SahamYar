@@ -14,16 +14,28 @@
 - صورت‌های مالی: Codal (روی main: parser آفلاین؛ کلاینت HTTP در main تأیید نشد)
 
 ## مرجع کد بررسی‌شده
-مخزن GitHub: شاخه `main`، snapshot بررسی‌شده در ۲۶ نوامبر ۲۰۲۶ با commit `97107538c42fb0548a367971c540591efc6d663d`.
+مخزن GitHub: شاخه main، snapshot بررسی‌شده در ۲۶ نوامبر ۲۰۲۶ با commit `97107538c42fb0548a367971c540591efc6d663d`.
 
 ## وضعیت کلیدی پس از هم‌ترازی
 - تکنیکال و TSETMC در بک‌اند main فعال است.
-- parser Codal در main موجود است ولی به `/analysis` وصل نیست؛ fundamental = UNAVAILABLE.
-- README قبلی مخزن routeهای Codal را بیش از کد توصیف می‌کرد؛ نسخه اصلاح‌شده در `backend_README.md` این بسته است.
-- Android Retrofit و مدل‌های API در main موجودند، اما `ApiClient` هنوز `127.0.0.1:8000` را هدف می‌گیرد؛ این مانع باید پیش از انتشار APK مستقل رفع شود.
-- پیشرفت مستقیم TSETMC در اندروید در مستندات محلی گزارش و توسط کاربر تأیید شده؛ `TsetmcMarketApi.kt` در main پیدا نشد.
+- parser Codal در main موجود است ولی به /analysis وصل نیست؛ fundamental = UNAVAILABLE.
+- README ریشه اصلاح شده تا فقط routeهای موجود در main را فهرست کند.
+- Android Retrofit و مدل‌های API در main موجودند، اما ApiClient هنوز 127.0.0.1:8000 را هدف می‌گیرد؛ این مانع باید پیش از انتشار APK مستقل رفع شود.
+- پیشرفت مستقیم TSETMC در اندروید در مستندات محلی گزارش و توسط کاربر تأیید شده؛ TsetmcMarketApi.kt در main پیدا نشد.
 
-## مسیرها
-- مخزن: https://github.com/Tech-quantum/SahamYar.git
-- Termux: ~/SahamYar/repo-check
-- این بسته جایگزین خودکار فایل‌های worktree نیست؛ برای اعمال باید عمداً کپی و پس از اجازه commit شود.
+## فهرست مستندات
+- SYNC_REPORT.md — گزارش هم‌ترازی و مبنای بررسی
+- STATUS.txt — وضعیت پروژه
+- ROADMAP.md — نقشه راه
+- OPEN_ISSUES.md — مسائل باز
+- HISTORY.md — تاریخچه
+- HANDOFF.md — نقطه ادامه کار
+- TERMUX_COMMANDS.md — فرمان‌های ایمن Termux
+- backend_README.md — مستند فنی بک‌اند مطابق main
+
+## مسیرها و دامنه تغییر
+- مخزن: https://github.com/Tech-quantum/SahamYar
+- مسیر مستندات: docs/project/
+- مسیر توسعه محلی گزارش‌شده: ~/SahamYar/repo-check
+- این شاخه فقط مستندات را تغییر می‌دهد؛ کد اجرایی و worktree محلی دست‌نخورده‌اند.
+- این تغییرات در شاخه مستقل قرار دارند و تا زمان بازبینی/ادغام PR وارد main نمی‌شوند.
