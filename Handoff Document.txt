@@ -1,87 +1,155 @@
 SAHAMYAR - HANDOFF DOCUMENT
-Date: 2026-11-21
+Updated: 2026-11-28
 
-1. PROJECT
+1. REPOSITORY AND VERIFIED BASELINE
 Repository: https://github.com/Tech-quantum/SahamYar.git
 Termux working directory: ~/SahamYar/repo-check
-Previously reported local branch: backend-review
-Remote main branch: main
+Primary branch: main
+Verified main baseline before this documentation update:
+37bcf9df04ce9b2a8a8b417cd60fe677218e43f3
+
+The documentation refresh is being prepared separately from application code.
+Do not assume the docs branch has been merged until GitHub confirms it.
 
 2. PRODUCT DEFINITION
 SahamYar is an intelligent analysis assistant for the Iranian capital market.
-Its scope includes market and instrument analysis, technical and fundamental
-data, news and disclosures, and reasoned analytical opinions with risks.
+Its intended scope includes market/instrument analysis, technical and
+fundamental evidence, official disclosures/news, Iran macroeconomy,
+geopolitical conditions, liquidity/market behavior and relevant
+global/parallel markets.
 
-Personal portfolio management, transaction recording, cost basis,
-personal profit/loss, Excel transaction imports and automatic trading
-are explicitly outside the confirmed scope.
+The product must separate source facts, deterministic calculations and
+AI interpretation. Any analytical opinion must expose its evidence,
+uncertainty, time horizon and risks.
 
-3. DEVELOPMENT SAFETY
-- Inspect git status before any operation.
-- Preserve all tracked and untracked local work.
-- Never use destructive Git commands.
-- Do not commit, push, merge or alter remote branches without approval.
-- Do not overwrite existing user files without a backup and approval.
+Explicitly out of scope:
+- Personal portfolio management.
+- User transaction recording/management.
+- Personal cost basis or profit/loss calculations.
+- Excel imports of personal transactions.
+- Brokerage order placement or automatic trading.
 
-4. ARCHITECTURE
-Android: Kotlin, Jetpack Compose, Retrofit.
-Backend: Python and Flask.
-Market provider: TSETMC.
-Financial disclosures: Codal client and parser.
-Tests: pytest.
+3. TECHNOLOGY AND STRUCTURE
+Android:
+- Kotlin and Jetpack Compose.
+- Retrofit/OkHttp API client.
+- Room local database.
+- Application ID: com.techquantum.sahamyar.
+- Version 1.0.0; minSdk 26; compileSdk/targetSdk 36; JVM target 17.
+- Current API base URL: http://127.0.0.1:8000/ for same-device local
+  development. Preserve this setting unless the network topology is
+  deliberately changed and tested.
 
-Do not assume FastAPI, PostgreSQL, Redis, or a completed authentication
-system unless verified in the current source tree.
+Backend:
+- Python 3.11+, Flask, httpx, pytest and Ruff.
+- TSETMC provider for instrument/market data.
+- Codal client/parser for financial reports.
+- Market-hours/calendar modules.
+- Price service and in-memory refresh scheduler.
 
-5. INSTRUMENT COVERAGE
-COMMON_STOCK, RIGHTS, FUND, DEBT and OTHER must be distinguished.
-Search coverage and analytical support are separate capabilities.
-Unsupported instruments must be reported transparently.
+4. IMPLEMENTED BACKEND SURFACE
+- TSETMC instrument search and details.
+- Price and daily-history retrieval.
+- Instrument categories COMMON_STOCK, RIGHTS, FUND, DEBT and OTHER.
+- Technical indicators: SMA, EMA, RSI, MACD, Bollinger Bands, ATR,
+  Stochastic, OBV, volume SMA and volume ratio.
+- Codal report search/retrieval, parsing of five financial-statement
+  structures and metric standardization.
+- Overall market status, market-scoped status and instrument-scoped status.
+- Calendar data and market-event handling with fail-closed behavior when
+  the current calendar is missing or invalid.
+- Sanitized provider-facing API errors.
 
-6. DATA QUALITY
-Missing values must never be silently converted to zero.
-Distinguish AVAILABLE, PARTIAL, UNAVAILABLE, INSUFFICIENT_DATA,
-UNSUPPORTED and ERROR.
-Separate provider facts, deterministic calculations and AI interpretation.
-Cached values must be labeled with their timestamps.
+Technical analysis is currently restricted to COMMON_STOCK and RIGHTS where
+validated. Search support must not be confused with analysis support.
 
-7. CODE AUDIT NOTES
-Codal:
-- Review retry handling; permanent HTTP errors such as 404 should not
-  be retried as transient failures.
-- Apply response-size limits before unbounded content is loaded.
-- Validate dates and report metadata.
-- Keep ambiguous metric mappings explicit rather than guessing.
-- Sanitize API errors and avoid exposing internal exception details.
+5. IMPORTANT API ROUTES
+- GET /health
+- GET /api/v1/market/status
+- GET /api/v1/markets/{market}/status
+- GET /api/v1/stocks/search?q=
+- GET /api/v1/stocks/{ins_code}
+- GET /api/v1/stocks/{ins_code}/market-status
+- GET /api/v1/stocks/{ins_code}/prices
+- GET /api/v1/stocks/{ins_code}/history?count=
+- GET /api/v1/stocks/{ins_code}/analysis?count=
+- GET /api/v1/stocks/{ins_code}/financial-reports?page=
+- GET /api/v1/stocks/{ins_code}/financial-reports/{tracing_no}?page=
 
-TSETMC:
-- Preserve instrument category coverage.
-- Retry only transient failures.
-- Review client lifecycle, input validation and response-size limits.
+6. VERIFIED TESTS AND BUILD (2026-11-28)
+On the synchronized local main snapshot:
+- Backend: python -m pytest -q -> 469 passed in 3.27s.
+- Android: ./gradlew testDebugUnitTest --rerun-tasks ->
+  BUILD SUCCESSFUL; 26 Gradle tasks executed. No test-case count was
+  printed in the captured summary.
+- Android: ./gradlew testDebugUnitTest assembleDebug ->
+  BUILD SUCCESSFUL; debug APK assembly completed. Unit-test task was
+  UP-TO-DATE in that combined run.
+- GitHub Actions run #38 on main succeeded for Backend Tests and Android
+  Debug Build.
 
-Technical analysis:
-- Do not report an indicator as available without enough historical data.
-- Keep raw, closing and adjusted prices distinct.
-- An individual indicator is not a guaranteed trading signal.
+Local Gradle emitted Android SDK repository-manifest download warnings; the
+reported tasks nevertheless completed successfully.
 
-Scheduler:
-- Avoid import-time startup side effects.
-- Review worker lifecycle and shared state before separating processes.
+These results apply to the stated snapshot only. Re-run after code changes.
 
-8. TESTS
-A previous snapshot reported 249 passing backend tests.
-Run tests again against the current worktree before claiming that result
-still applies.
+7. CURRENT LIMITATIONS
+- Codal parsing and statement standardization exist; complete fundamental
+  ratio calculations, multi-period comparisons and fundamental scoring
+  are not finished.
+- News, macroeconomic, geopolitical, liquidity/flow and global-market
+  providers are not fully connected and verified.
+- The current analysis API uses INSUFFICIENT_DATA as its recommendation
+  action while the wider evidence set is incomplete. Do not claim a complete
+  BUY/SELL/HOLD/WAIT recommendation engine.
+- Price cache, subscriptions and scheduler state are in-memory.
+- Durable watchlist/alert persistence, authentication/authorization and
+  multi-worker scheduler coordination are incomplete.
+- The scheduler starts through python -m app.main. WSGI imports do not run
+  the module entry point; production worker lifecycle remains unresolved.
+- Production deployment is deferred.
+- Android/backend workflows need systematic device-level end-to-end testing;
+  successful unit tests/build do not prove every UI flow is integrated.
 
-9. NEXT STEPS
-1. Inspect git status and current branch.
-2. Run the complete backend tests.
-3. Review tracked and untracked changes.
-4. Complete a read-only audit.
-5. Present a consolidated patch plan.
-6. Apply changes only after explicit approval.
-7. Report test results, changed files and remaining risks.
+8. DATA QUALITY RULES
+- Missing data is not zero; never fabricate values or signals.
+- Distinguish AVAILABLE, PARTIAL, UNAVAILABLE, INSUFFICIENT_DATA,
+  UNSUPPORTED and ERROR.
+- Preserve source, retrieved_at, as_of, units and report period/type.
+- Mark cached values and timestamps.
+- Do not turn model-generated interpretation into a source fact.
+- Preserve conflicting evidence and uncertainty.
+- Technical indicators alone are not guaranteed trading signals.
 
-10. IMPORTANT
-The root app.py is a Termux Flask testing utility, not the Android app.
-Do not delete it based on its filename.
+9. NEXT ENGINEERING PRIORITIES
+1. Verify Android-to-backend API workflows on the target device.
+2. Complete fundamental calculations only with comparable, validated
+   Codal data and traceable formulas.
+3. Integrate and verify trusted news, macroeconomic, geopolitical,
+   liquidity and global/parallel-market providers.
+4. Complete the six-axis analysis and evidence-combination architecture
+   without filling missing inputs with fabricated scores.
+5. Design durable subscriptions, authentication and scheduler coordination.
+6. Complete production hardening/deployment only after local functionality
+   is stable.
+7. Keep Persian ASR/TTS as a final deferred phase.
+
+10. LOCAL GIT SAFETY
+At the last Termux status check, main matched origin/main. These untracked
+local files were intentionally preserved and were not part of the tracked
+main snapshot:
+- app.py
+- settings.gradle.kts.before-aliyun
+
+Inspect them before any staging, moving or deletion. Do not assume they are
+disposable. Never use git reset --hard, git clean, force-push or overwrite
+user work. Review diffs before commit/PR/merge.
+
+11. DOCUMENTS TO KEEP SYNCHRONIZED
+- README.md: project overview, architecture, setup and API.
+- STATUS.txt: dated verified status and limitations.
+- ROADMAP_DEFERRED.md: unfinished work and prerequisites.
+- AGENTS.md: engineering, security, data and testing rules.
+- HISTORY.md: dated decisions and verified milestones.
+- TERMUX_COMMANDS.md: safe local commands.
+- Handoff Document.txt: current state and next steps.
