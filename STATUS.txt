@@ -1,0 +1,55 @@
+SAHAMYAR - PROJECT STATUS
+Last documentation update: 2026-11-21
+
+PRODUCT SCOPE
+SahamYar is an intelligent analysis assistant for Iran's capital market.
+It analyzes the market, instruments, technical and fundamental data,
+news and disclosures, and produces reasoned BUY / SELL / HOLD / WAIT
+opinions with risks and scenarios.
+
+OUT OF SCOPE
+Personal portfolio management, recording transactions, cost-basis or
+personal profit/loss calculations, Excel transaction imports, and
+automatic order placement are outside the confirmed product scope.
+
+SUPPORTED INSTRUMENT CATEGORIES
+- COMMON_STOCK: ordinary shares
+- RIGHTS: subscription rights
+- FUND: investment funds
+- DEBT: debt securities
+- OTHER: other or unidentified instruments
+
+TECHNOLOGY
+Android: Kotlin, Jetpack Compose, Retrofit.
+Backend: Python, Flask, TSETMC provider, Codal parser/client, pytest.
+
+DATA PRINCIPLES
+- Never replace missing data with zero or fabricated values.
+- Distinguish source facts, deterministic calculations, and AI interpretation.
+- Identify cached data and its timestamp.
+- Use explicit statuses: AVAILABLE, PARTIAL, UNAVAILABLE,
+  INSUFFICIENT_DATA, UNSUPPORTED, ERROR.
+
+KNOWN BACKEND AREAS
+TSETMC: instrument search, market data, prices and daily history.
+Codal: financial report discovery, retrieval, parsing and normalization.
+Technical indicators: SMA, EMA, RSI and MACD.
+Scheduler: must not start as an import side effect.
+
+HISTORICAL TEST RESULT
+249 backend tests passed after a previous hardening patch.
+This is a historical result, not confirmation of the current worktree.
+
+AUDIT PRIORITIES
+- Re-run the complete backend test suite.
+- Review Codal retry rules and response-size limits.
+- Validate financial report dates and parser ambiguity.
+- Review API error sanitization.
+- Verify technical indicator minimum-data requirements.
+- Review scheduler shared-state and worker lifecycle.
+- Reconcile local changes before proposing any patch.
+
+GIT SAFETY
+Local changes may be uncommitted and untracked.
+Never overwrite or delete user work.
+No commit, push, merge, reset --hard, or git clean without explicit approval.

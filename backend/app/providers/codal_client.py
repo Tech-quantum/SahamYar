@@ -12,6 +12,7 @@ CODAL_SEARCH_BASE_URL = "https://search.codal.ir"
 CODAL_REPORT_BASE_URL = "https://codal.ir"
 CODAL_ALLOWED_HOST_SUFFIX = "codal.ir"
 MAX_REPORT_BYTES = 5 * 1024 * 1024
+MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 3
 
 _COMPANIES_PATH = "/api/search/v1/companies"
@@ -87,6 +88,7 @@ class CodalClient:
         url: str,
         params: dict[str, Any] | None = None,
         allow_redirect: bool = False,
+        max_bytes: int = MAX_JSON_BYTES,
     ) -> httpx.Response:
         if self._client is None:
             self.start()
@@ -101,22 +103,60 @@ class CodalClient:
                     )
                     if wait_for > 0:
                         time.sleep(wait_for)
-                    response = self._client.get(
-                        url, params=params, follow_redirects=False
+                    stream_context = self._client.stream(
+                        "GET",
+                        url,
+                        params=params,
+                        follow_redirects=False,
                     )
                     self._last_request_at = time.monotonic()
 
-                if response.status_code in (429, 500, 502, 503, 504):
-                    if attempt < self._max_retries:
-                        time.sleep(min(2 ** attempt, 5))
-                        continue
+                with stream_context as streamed:
+                    if streamed.status_code in (429, 500, 502, 503, 504):
+                        if attempt < self._max_retries:
+                            time.sleep(min(2 ** attempt, 5))
+                            continue
 
-                if allow_redirect and 300 <= response.status_code < 400:
-                    return response
+                    if allow_redirect and 300 <= streamed.status_code < 400:
+                        return httpx.Response(
+                            streamed.status_code,
+                            headers=streamed.headers,
+                            request=streamed.request,
+                        )
 
-                response.raise_for_status()
-                return response
-            except (httpx.HTTPError, TimeoutError) as exc:
+                    streamed.raise_for_status()
+
+                    content_length = streamed.headers.get("content-length")
+                    if content_length is not None:
+                        try:
+                            if int(content_length) > max_bytes:
+                                raise ProviderSchemaError(
+                                    "Codal response is larger than the allowed size."
+                                )
+                        except ValueError:
+                            pass
+
+                    chunks = []
+                    total_bytes = 0
+                    for chunk in streamed.iter_bytes():
+                        total_bytes += len(chunk)
+                        if total_bytes > max_bytes:
+                            raise ProviderSchemaError(
+                                "Codal response is larger than the allowed size."
+                            )
+                        chunks.append(chunk)
+
+                    return httpx.Response(
+                        streamed.status_code,
+                        headers=streamed.headers,
+                        content=b"".join(chunks),
+                        request=streamed.request,
+                    )
+
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                break
+            except (httpx.TransportError, TimeoutError) as exc:
                 last_error = exc
                 if attempt < self._max_retries:
                     time.sleep(min(2 ** attempt, 5))
@@ -124,7 +164,9 @@ class CodalClient:
         raise ProviderUnavailable(f"Codal request failed: {last_error}") from last_error
 
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = self._get(f"{CODAL_SEARCH_BASE_URL}{path}", params)
+        response = self._get(
+            f"{CODAL_SEARCH_BASE_URL}{path}", params, max_bytes=MAX_JSON_BYTES
+        )
         try:
             return response.json()
         except ValueError as exc:
@@ -238,7 +280,9 @@ class CodalClient:
         """Fetch the HTML of one report; the URL comes from search_letters."""
         current = self.resolve_report_url(url)
         for _ in range(MAX_REDIRECTS + 1):
-            response = self._get(current, allow_redirect=True)
+            response = self._get(
+                current, allow_redirect=True, max_bytes=MAX_REPORT_BYTES
+            )
             if not 300 <= response.status_code < 400:
                 break
             location = response.headers.get("location")

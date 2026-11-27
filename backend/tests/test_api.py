@@ -285,8 +285,9 @@ def test_stock_analysis_allows_rights_instrument(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json["analysis_status"] == "PARTIAL"
+    assert response.json["analysis_status"] == "INSUFFICIENT_DATA"
     assert response.json["count"] == 2
+    assert response.json["layers"]["stock"]["technical"]["status"] == "INSUFFICIENT_DATA"
 
 
 def test_stock_analysis_returns_indicators(monkeypatch):
@@ -390,7 +391,7 @@ def test_stock_analysis_handles_provider_schema_error(monkeypatch):
     )
 
     assert response.status_code == 502
-    assert response.json["detail"] == "Invalid TSETMC response"
+    assert response.json["detail"] == "Upstream provider returned an invalid response."
 
 
 def test_stock_analysis_ignores_invalid_prices(monkeypatch):
@@ -462,7 +463,7 @@ def test_endpoints_handle_provider_schema_error(monkeypatch, url, method, args):
     response = main.app.test_client().get(url)
 
     assert response.status_code == 502
-    assert response.json == {"detail": "Invalid TSETMC response"}
+    assert response.json == {"detail": "Upstream provider returned an invalid response."}
 
 
 def test_stock_analysis_exposes_four_layers_without_fabricating_data(monkeypatch):
@@ -482,12 +483,812 @@ def test_stock_analysis_exposes_four_layers_without_fabricating_data(monkeypatch
     assert response.status_code == 200
     body = response.json
 
-    assert body["analysis_status"] == "PARTIAL"
+    assert body["analysis_status"] == "INSUFFICIENT_DATA"
     assert body["recommendation"]["action"] == "INSUFFICIENT_DATA"
 
     layers = body["layers"]
-    assert layers["stock"]["technical"]["status"] == "AVAILABLE"
+    assert layers["stock"]["status"] == "INSUFFICIENT_DATA"
+    assert layers["stock"]["technical"]["status"] == "INSUFFICIENT_DATA"
     assert layers["stock"]["fundamental"]["status"] == "UNAVAILABLE"
     assert layers["iran_economy"]["status"] == "UNAVAILABLE"
     assert layers["geopolitical"]["status"] == "UNAVAILABLE"
     assert layers["global_markets"]["status"] == "UNAVAILABLE"
+
+
+def _advanced_analysis_history(count=30):
+    records = []
+    start = date(2026, 10, 1)
+
+    for index in range(count):
+        close = 100 + index
+        records.append({
+            "date": int((start + timedelta(days=index)).strftime("%Y%m%d")),
+            "closing_price": close,
+            "max_price": close + 2,
+            "min_price": close - 2,
+            "volume": 100 + index * 10,
+        })
+
+    return records
+
+
+def test_stock_analysis_returns_advanced_indicators(monkeypatch):
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_daily_prices",
+        lambda code, count: _advanced_analysis_history(),
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/analysis"
+    )
+
+    assert response.status_code == 200
+    indicators = response.json["indicators"]
+    advanced = indicators["advanced"]
+
+    assert advanced["bollinger_bands"]["20"]["upper"] is not None
+    assert advanced["bollinger_bands"]["20"]["middle"] is not None
+    assert advanced["bollinger_bands"]["20"]["lower"] is not None
+    assert advanced["atr"]["14"] is not None
+    assert advanced["stochastic"]["14"]["k"] is not None
+    assert advanced["stochastic"]["14"]["d"] is not None
+    assert advanced["obv"] is not None
+    assert advanced["volume_sma"]["20"] is not None
+    assert advanced["volume_ratio"]["20"] is not None
+
+    assert indicators["sma"]["20"] is not None
+    assert indicators["ema"]["12"] is not None
+    assert indicators["rsi"]["14"] is not None
+    assert indicators["macd"]["line"] is not None
+
+
+def test_stock_analysis_does_not_bridge_invalid_ohlc_candles(monkeypatch):
+    history = _advanced_analysis_history()
+    history[-1]["max_price"] = None
+
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_daily_prices",
+        lambda code, count: history,
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/analysis"
+    )
+
+    assert response.status_code == 200
+    advanced = response.json["indicators"]["advanced"]
+
+    assert advanced["atr"]["14"] is None
+    assert advanced["stochastic"]["14"]["k"] is None
+    assert advanced["stochastic"]["14"]["d"] is None
+
+    assert advanced["bollinger_bands"]["20"]["middle"] is not None
+    assert advanced["volume_sma"]["20"] is not None
+    assert advanced["volume_ratio"]["20"] is not None
+    assert advanced["obv"] is not None
+
+
+def test_stock_analysis_keeps_ohlc_indicators_when_volume_is_invalid(monkeypatch):
+    history = _advanced_analysis_history()
+    history[-1]["volume"] = float("nan")
+
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_daily_prices",
+        lambda code, count: history,
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/analysis"
+    )
+
+    assert response.status_code == 200
+    advanced = response.json["indicators"]["advanced"]
+
+    assert advanced["atr"]["14"] is not None
+    assert advanced["stochastic"]["14"]["k"] is not None
+    assert advanced["stochastic"]["14"]["d"] is not None
+
+    assert advanced["obv"] is None
+    assert advanced["volume_sma"]["20"] is None
+    assert advanced["volume_ratio"]["20"] is None
+
+
+
+def test_stock_analysis_advanced_indicators_do_not_bridge_invalid_closes(monkeypatch):
+    history = _advanced_analysis_history()
+    history[-2]["closing_price"] = None
+
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_daily_prices",
+        lambda code, count: history,
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/analysis"
+    )
+
+    assert response.status_code == 200
+
+    indicators = response.json["indicators"]
+    advanced = indicators["advanced"]
+
+    # Basic close-based indicators retain their existing filtering behavior.
+    assert indicators["sma"]["20"] is not None
+
+    # The invalid close breaks the contiguous history for advanced indicators.
+    assert advanced["bollinger_bands"]["20"]["middle"] is None
+    assert advanced["bollinger_bands"]["20"]["upper"] is None
+    assert advanced["bollinger_bands"]["20"]["lower"] is None
+
+    assert advanced["atr"]["14"] is None
+    assert advanced["stochastic"]["14"]["k"] is None
+    assert advanced["stochastic"]["14"]["d"] is None
+
+    assert advanced["volume_sma"]["20"] is None
+    assert advanced["volume_ratio"]["20"] is None
+
+    # OBV restarts from the single valid candle after the broken observation.
+    assert advanced["obv"] == 0
+
+
+@pytest.mark.parametrize(
+    ("url", "method"),
+    [
+        (
+            "/api/v1/stocks/123456789/financial-reports",
+            "search_reports",
+        ),
+        (
+            "/api/v1/stocks/123456789/financial-reports/12345",
+            "get_financial_report",
+        ),
+    ],
+)
+def test_codal_endpoints_sanitize_provider_errors(
+    monkeypatch, caplog, url, method
+):
+    from app.errors import ProviderSchemaError
+
+    secret_detail = "INTERNAL-CODAL-DETAIL-DO-NOT-EXPOSE"
+
+    monkeypatch.setattr(
+        main,
+        "_codal_symbol_for_instrument",
+        lambda code: "فولاد",
+    )
+
+    def fail(*args, **kwargs):
+        raise ProviderSchemaError(secret_detail)
+
+    monkeypatch.setattr(main.financial_service, method, fail)
+
+    response = main.app.test_client().get(url)
+
+    assert response.status_code == 502
+    assert response.json["detail"] == (
+        "Upstream provider returned an invalid response."
+    )
+    assert response.json["data_status"] == "unavailable"
+    assert secret_detail not in response.get_data(as_text=True)
+    assert secret_detail in caplog.text
+
+
+def test_financial_report_not_found_does_not_expose_internal_error(
+    monkeypatch,
+):
+    secret_detail = "INTERNAL-REPORT-LOOKUP-DETAIL-DO-NOT-EXPOSE"
+
+    monkeypatch.setattr(
+        main,
+        "_codal_symbol_for_instrument",
+        lambda code: "فولاد",
+    )
+
+    def fail(*args, **kwargs):
+        raise LookupError(secret_detail)
+
+    monkeypatch.setattr(
+        main.financial_service,
+        "get_financial_report",
+        fail,
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/financial-reports/12345"
+    )
+
+    assert response.status_code == 404
+    assert response.json["detail"] == (
+        "The requested financial report was not found."
+    )
+    assert response.json["data_status"] == "not_found"
+    assert secret_detail not in response.get_data(as_text=True)
+
+
+
+def test_market_status_endpoint_returns_calendar_metadata():
+    response = main.app.test_client().get("/api/v1/market/status")
+
+    assert response.status_code == 200
+    assert response.json["market"]["timezone"] == "Asia/Tehran"
+    assert response.json["market"]["phase"] in {
+        "pre_open", "continuous", "post_market", "closed"
+    }
+    assert response.json["calendar"]["available"] is True
+    assert response.json["calendar"]["jalali_year"] == 1405
+    assert response.json["calendar"]["source"]
+    assert response.json["calendar"]["source_url"]
+    assert isinstance(response.json["calendar"]["holidays"], list)
+    assert isinstance(response.json["calendar"]["closure_events"], list)
+    assert isinstance(response.json["calendar"]["warnings"], list)
+    assert response.json["retrieved_at"]
+
+
+def test_market_status_without_calendar_is_unknown_and_fail_closed(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+
+    assert response.status_code == 200
+    assert response.json["market"]["status"] == "unknown"
+    assert response.json["market"]["phase"] == "closed"
+    assert response.json["market"]["is_trading_day"] is False
+    assert response.json["market"]["trading_day_status"] == "unknown"
+    assert response.json["calendar"]["available"] is False
+    assert response.json["calendar"]["status"] == "needs_update"
+    assert response.json["calendar"]["holidays"] == []
+
+
+def test_market_status_only_exposes_global_closure_events(monkeypatch):
+    from datetime import datetime
+    from pathlib import Path
+    from app.market_calendar import CalendarEvent, MarketCalendar, MarketScope
+
+    now = datetime.now(main.TEHRAN)
+    today = now.date()
+
+    def event(event_id, level, status, symbol=None):
+        return CalendarEvent(
+            event_id=event_id,
+            title=event_id,
+            issuer="Test issuer",
+            source_url="https://example.com/notice",
+            published_at=now,
+            effective_from=today,
+            effective_to=today,
+            scope=MarketScope(level=level, symbol=symbol),
+            status=status,
+        )
+
+    events = [
+        event("global-closure", "all_market", "confirmed"),
+        event("global-warning", "all_market", "unverified"),
+        event("symbol-closure", "symbol", "confirmed", "فولاد"),
+    ]
+
+    calendar_path = (
+        Path(main.__file__).resolve().parent
+        / "data" / "calendars" / "1405.json"
+    )
+    calendar = MarketCalendar.from_json(calendar_path, events=events)
+
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+
+    assert response.status_code == 200
+    assert response.json["calendar"]["status"] == "emergency_closure"
+
+    closures = response.json["calendar"]["closure_events"]
+    warnings = response.json["calendar"]["warnings"]
+
+    assert [item["event_id"] for item in closures] == ["global-closure"]
+    assert [item["event_id"] for item in warnings] == ["global-warning"]
+    assert all(
+        item["scope"]["level"] == "all_market"
+        for item in closures + warnings
+    )
+
+
+def test_market_status_serializes_official_holiday_details(monkeypatch):
+    from datetime import datetime, timezone
+    from app.market_calendar import CalendarHoliday, MarketCalendar
+
+    fixed = datetime(2026, 12, 23, 10, 0, tzinfo=main.TEHRAN)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+
+    holiday = CalendarHoliday(
+        day=fixed.date(),
+        name="ولادت حضرت امام علی",
+        source="تقویم رسمی کشور",
+        source_url="https://example.com/calendar",
+    )
+    calendar = MarketCalendar(
+        holidays=[holiday],
+        calendar_year=2026,
+        jalali_year=1405,
+        source="تقویم رسمی کشور",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+    monkeypatch.setattr(
+        main, "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["calendar"]["status"] == "official_holiday"
+    assert payload["calendar"]["holidays"] == [{
+        "date": "2026-12-23",
+        "name": "ولادت حضرت امام علی",
+        "source": "تقویم رسمی کشور",
+        "source_url": "https://example.com/calendar",
+    }]
+    assert payload["market"]["is_trading_day"] is False
+
+
+def test_market_status_serializes_confirmed_closure_event(monkeypatch):
+    from datetime import datetime
+    from app.market_calendar import CalendarEvent, MarketCalendar, MarketScope
+
+    fixed = datetime(2026, 11, 25, 10, 0, tzinfo=main.TEHRAN)
+    event = CalendarEvent(
+        event_id="test-closure",
+        title="تعطیلی اضطراری بازار",
+        issuer="نهاد صادرکننده",
+        source_url="https://example.com/notice",
+        published_at=fixed,
+        effective_from=fixed.date(),
+        effective_to=fixed.date(),
+        scope=MarketScope(level="all_market"),
+        status="confirmed",
+    )
+    calendar = MarketCalendar(
+        events=[event],
+        calendar_year=2026,
+        jalali_year=1405,
+        source="تقویم آزمایشی",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        main, "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["calendar"]["status"] == "emergency_closure"
+    assert payload["calendar"]["closure_events"] == [{
+        "event_id": "test-closure",
+        "title": "تعطیلی اضطراری بازار",
+        "issuer": "نهاد صادرکننده",
+        "source_url": "https://example.com/notice",
+        "published_at": fixed.isoformat(),
+        "effective_from": fixed.date().isoformat(),
+        "effective_to": fixed.date().isoformat(),
+        "scope": {
+            "level": "all_market",
+            "market": None,
+            "symbol": None,
+            "operation": None,
+        },
+        "status": "confirmed",
+        "expires_at": None,
+    }]
+    assert payload["market"]["is_trading_day"] is False
+
+
+def test_market_status_unverified_notice_is_warning_not_closure(monkeypatch):
+    from datetime import datetime
+    from app.market_calendar import CalendarEvent, MarketCalendar, MarketScope
+
+    fixed = datetime(2026, 11, 25, 10, 0, tzinfo=main.TEHRAN)
+    event = CalendarEvent(
+        event_id="test-warning",
+        title="خبر تأییدنشده درباره تعطیلی",
+        issuer="منبع غیررسمی",
+        source_url="https://example.com/unverified",
+        published_at=fixed,
+        effective_from=fixed.date(),
+        effective_to=fixed.date(),
+        scope=MarketScope(level="all_market"),
+        status="unverified",
+    )
+    calendar = MarketCalendar(
+        events=[event],
+        calendar_year=2026,
+        jalali_year=1405,
+        source="تقویم آزمایشی",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        main, "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["calendar"]["status"] == "open_with_unverified_notice"
+    assert payload["calendar"]["closure_events"] == []
+    assert len(payload["calendar"]["warnings"]) == 1
+    assert payload["calendar"]["warnings"][0]["event_id"] == "test-warning"
+    assert payload["calendar"]["warnings"][0]["status"] == "unverified"
+    assert payload["market"]["is_trading_day"] is True
+    assert payload["market"]["phase"] == "continuous"
+    assert payload["market"]["status"] == "open"
+
+def test_market_status_returns_full_annual_holiday_list(monkeypatch):
+    from datetime import datetime
+    from app.market_calendar import CalendarHoliday, MarketCalendar
+
+    fixed = datetime(2026, 12, 23, 10, 0, tzinfo=main.TEHRAN)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    holidays = [
+        CalendarHoliday(
+            day=fixed.date().replace(day=24),
+            name="تعطیلی دوم",
+            source="تقویم رسمی",
+            source_url="https://example.com/calendar",
+        ),
+        CalendarHoliday(
+            day=fixed.date(),
+            name="تعطیلی امروز",
+            source="تقویم رسمی",
+            source_url="https://example.com/calendar",
+        ),
+    ]
+    calendar = MarketCalendar(
+        holidays=holidays,
+        calendar_year=2026,
+        jalali_year=1405,
+        source="تقویم رسمی",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get("/api/v1/market/status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert [item["date"] for item in payload["calendar"]["holidays"]] == [
+        "2026-12-23",
+        "2026-12-24",
+    ]
+    assert [item["date"] for item in payload["calendar"]["today_holidays"]] == [
+        "2026-12-23",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("url", "method"),
+    [
+        ("/api/v1/stocks/search?q=فولاد", "search_instruments"),
+        ("/api/v1/stocks/123456789", "get_instrument_info"),
+        ("/api/v1/stocks/123456789/prices", "get_closing_price_info"),
+        ("/api/v1/stocks/123456789/history", "get_daily_prices"),
+        ("/api/v1/stocks/123456789/analysis", "get_daily_prices"),
+    ],
+)
+def test_tsetmc_endpoints_sanitize_provider_errors(
+    monkeypatch, caplog, url, method
+):
+    secret_detail = "INTERNAL-TSETMC-DETAIL-DO-NOT-EXPOSE"
+
+    def fail(*args, **kwargs):
+        raise ProviderUnavailable(secret_detail)
+
+    monkeypatch.setattr(main.tsetmc, method, fail)
+
+    response = main.app.test_client().get(url)
+
+    assert response.status_code == 502
+    assert response.json == {
+        "detail": "Upstream data provider is temporarily unavailable."
+    }
+    assert secret_detail not in response.get_data(as_text=True)
+    assert secret_detail in caplog.text
+
+
+def test_market_scoped_status_filters_events(monkeypatch):
+    from datetime import datetime
+    from app.market_calendar import CalendarEvent, MarketCalendar, MarketScope
+
+    fixed = datetime(2026, 11, 25, 10, 0, tzinfo=main.TEHRAN)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    def event(event_id, scope):
+        return CalendarEvent(
+            event_id=event_id,
+            title=event_id,
+            issuer="Official authority",
+            source_url="https://example.com/notice",
+            published_at=fixed,
+            effective_from=fixed.date(),
+            effective_to=fixed.date(),
+            scope=scope,
+            status="confirmed",
+        )
+
+    calendar = MarketCalendar(
+        events=[
+            event("global", MarketScope(level="all_market")),
+            event("target-market", MarketScope(
+                level="market", market="stock_exchange"
+            )),
+            event("other-market", MarketScope(
+                level="market", market="commodity_exchange"
+            )),
+            event("symbol-only", MarketScope(
+                level="symbol", symbol="فولاد"
+            )),
+        ],
+        calendar_year=2026,
+        jalali_year=1405,
+        source="Test calendar",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/markets/stock_exchange/status"
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["scope"]["level"] == "market"
+    assert payload["scope"]["market"] == "stock_exchange"
+    assert {
+        item["event_id"] for item in payload["calendar"]["closure_events"]
+    } == {"global", "target-market"}
+
+
+def test_stock_market_status_includes_matching_scoped_events(monkeypatch):
+    from datetime import datetime
+    from app.market_calendar import CalendarEvent, MarketCalendar, MarketScope
+
+    fixed = datetime(2026, 11, 25, 10, 0, tzinfo=main.TEHRAN)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed
+
+    def event(event_id, scope):
+        return CalendarEvent(
+            event_id=event_id,
+            title=event_id,
+            issuer="Official authority",
+            source_url="https://example.com/notice",
+            published_at=fixed,
+            effective_from=fixed.date(),
+            effective_to=fixed.date(),
+            scope=scope,
+            status="confirmed",
+        )
+
+    calendar = MarketCalendar(
+        events=[
+            event("global", MarketScope(level="all_market")),
+            event("market", MarketScope(
+                level="market", market="stock_exchange"
+            )),
+            event("matching-symbol", MarketScope(
+                level="symbol",
+                market="stock_exchange",
+                symbol="فولاد",
+            )),
+            event("wrong-market-symbol", MarketScope(
+                level="symbol",
+                market="commodity_exchange",
+                symbol="فولاد",
+            )),
+            event("other-symbol", MarketScope(
+                level="symbol",
+                market="stock_exchange",
+                symbol="فملی",
+            )),
+        ],
+        calendar_year=2026,
+        jalali_year=1405,
+        source="Test calendar",
+        source_url="https://example.com/calendar",
+        updated_at=fixed,
+    )
+
+    monkeypatch.setattr(main, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(calendar=calendar, require_calendar=True),
+    )
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_instrument_info",
+        lambda code: {
+            "ins_code": code,
+            "symbol": "فولاد",
+            "market": "stock_exchange",
+            "instrument_category": "COMMON_STOCK",
+        },
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/market-status"
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["scope"]["symbol"] == "فولاد"
+    assert {
+        item["event_id"] for item in payload["calendar"]["closure_events"]
+    } == {"global", "market", "matching-symbol"}
+
+
+def test_scoped_market_status_without_calendar_is_unknown_and_fail_closed(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        main,
+        "market_hours",
+        main.MarketHours(require_calendar=True),
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/markets/stock_exchange/status"
+    )
+
+    assert response.status_code == 200
+    calendar = response.json["calendar"]
+    assert calendar["available"] is False
+    assert calendar["status"] == "unknown"
+    assert calendar["is_closed"] is None
+    assert calendar["calendar_status"] == "needs_update"
+    assert calendar["closure_events"] == []
+    assert calendar["warnings"] == []
+
+
+@pytest.mark.parametrize(
+    "instrument",
+    [
+        None,
+        {},
+        {"symbol": "فولاد"},
+        {"market": "stock_exchange"},
+        {"symbol": " ", "market": "stock_exchange"},
+        {"symbol": "فولاد", "market": ""},
+    ],
+)
+def test_stock_market_status_rejects_incomplete_instrument_metadata(
+    monkeypatch, instrument
+):
+    monkeypatch.setattr(
+        main.tsetmc,
+        "get_instrument_info",
+        lambda code: instrument,
+    )
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/market-status"
+    )
+
+    assert response.status_code == 502
+    assert response.json == {
+        "detail": "Upstream provider returned an invalid response."
+    }
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        pytest.param(
+            __import__("app.errors", fromlist=["ProviderUnavailable"]).ProviderUnavailable,
+            id="provider-unavailable",
+        ),
+        pytest.param(
+            __import__("app.errors", fromlist=["ProviderSchemaError"]).ProviderSchemaError,
+            id="provider-schema-error",
+        ),
+    ],
+)
+def test_stock_market_status_sanitizes_provider_errors(
+    monkeypatch, error_type
+):
+    secret_detail = "INTERNAL-TSETMC-DETAIL-DO-NOT-EXPOSE"
+
+    def fail(code):
+        raise error_type(secret_detail)
+
+    monkeypatch.setattr(main.tsetmc, "get_instrument_info", fail)
+
+    response = main.app.test_client().get(
+        "/api/v1/stocks/123456789/market-status"
+    )
+
+    assert response.status_code == 502
+    assert secret_detail not in response.get_data(as_text=True)
+    assert response.json["detail"] in {
+        "Upstream provider returned an invalid response.",
+        "Upstream data provider is temporarily unavailable.",
+    }
+
+
+def test_stock_market_status_rejects_invalid_instrument_code():
+    response = main.app.test_client().get(
+        "/api/v1/stocks/abc/market-status"
+    )
+
+    assert response.status_code == 400
+
+
+def test_scoped_market_status_rejects_oversized_market_identifier():
+    market = "x" * 129
+
+    response = main.app.test_client().get(
+        f"/api/v1/markets/{market}/status"
+    )
+
+    assert response.status_code == 400

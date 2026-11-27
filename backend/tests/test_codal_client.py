@@ -194,3 +194,46 @@ def test_get_report_html_rejects_redirect_to_foreign_host():
     with pytest.raises(ValueError):
         client.get_report_html("/Reports/Decision.aspx?x=1")
     http.close()
+
+
+@pytest.mark.parametrize("status_code", [401, 404])
+def test_codal_does_not_retry_permanent_http_errors(status_code, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    calls = {"n": 0}
+
+    def handler(_):
+        calls["n"] += 1
+        return httpx.Response(status_code)
+
+    client, http = make_client(handler, max_retries=3)
+    try:
+        with pytest.raises(ProviderUnavailable):
+            client.get_companies()
+        assert calls["n"] == 1
+    finally:
+        http.close()
+
+
+
+def test_json_response_size_limit_is_enforced_during_streaming(monkeypatch):
+    monkeypatch.setattr("app.providers.codal_client.MAX_JSON_BYTES", 10)
+    client, http = make_client(
+        lambda request: httpx.Response(200, content=b'{"payload":"too large"}')
+    )
+    try:
+        with pytest.raises(ProviderSchemaError, match="larger than the allowed size"):
+            client.get_companies()
+    finally:
+        http.close()
+
+
+def test_html_response_size_limit_is_enforced_during_streaming(monkeypatch):
+    monkeypatch.setattr("app.providers.codal_client.MAX_REPORT_BYTES", 10)
+    client, http = make_client(
+        lambda request: httpx.Response(200, content=b"<html>too large</html>")
+    )
+    try:
+        with pytest.raises(ProviderSchemaError, match="larger than the allowed size"):
+            client.get_report_html("/large")
+    finally:
+        http.close()

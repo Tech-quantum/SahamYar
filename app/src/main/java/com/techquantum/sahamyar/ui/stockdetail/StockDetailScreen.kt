@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.techquantum.sahamyar.data.repository.StockOverviewData
+import com.techquantum.sahamyar.data.repository.RequestStatus
 import com.techquantum.sahamyar.data.remote.model.StockAnalysisResponse
 
 private val DetailBackground = Color(0xFF17191D)
@@ -92,6 +93,37 @@ private fun StockOverviewContent(data: StockOverviewData) {
     val price = data.prices?.item
     val analysis = data.analysis
     val historyItems = data.history?.items.orEmpty()
+    val validHistoryItems = historyItems.filter {
+        it.date != null && (it.closing_price ?: 0L) > 0L
+    }
+
+    val priceUnavailableMessage = when (data.priceResult.status) {
+        RequestStatus.NETWORK_ERROR -> "ارتباط با سرور TSETMC برقرار نشد."
+        RequestStatus.HTTP_ERROR -> "درخواست دریافت قیمت با پاسخ HTTP ناموفق مواجه شد."
+        RequestStatus.INVALID_DATA -> "پاسخ دریافتی قیمت معتبر نیست."
+        RequestStatus.INSUFFICIENT_DATA -> "اطلاعات قیمت کافی نیست."
+        RequestStatus.NOT_SUPPORTED -> "دریافت قیمت برای این ابزار پشتیبانی نمی‌شود."
+        RequestStatus.SUCCESS -> "داده قیمت در پاسخ موجود نیست."
+    }
+
+    val historyUnavailableMessage = when (data.historyResult.status) {
+        RequestStatus.NETWORK_ERROR -> "ارتباط با سرور TSETMC برای دریافت تاریخچه برقرار نشد."
+        RequestStatus.HTTP_ERROR -> "درخواست دریافت تاریخچه با پاسخ HTTP ناموفق مواجه شد."
+        RequestStatus.INVALID_DATA -> "ساختار تاریخچه دریافتی معتبر نیست."
+        RequestStatus.INSUFFICIENT_DATA -> data.historyResult.message
+            ?: "تاریخچه دریافت شد، اما داده معتبر کافی ندارد."
+        RequestStatus.NOT_SUPPORTED -> "تاریخچه برای این ابزار پشتیبانی نمی‌شود."
+        RequestStatus.SUCCESS -> "تاریخچه قیمت در دسترس نیست."
+    }
+
+    val analysisUnavailableMessage = when (data.historyResult.status) {
+        RequestStatus.NETWORK_ERROR -> "تحلیل انجام نشد؛ دریافت تاریخچه با خطای ارتباط مواجه شد."
+        RequestStatus.HTTP_ERROR -> "تحلیل انجام نشد؛ درخواست HTTP ناموفق بود."
+        RequestStatus.INVALID_DATA -> "تحلیل انجام نشد؛ داده دریافتی معتبر نیست."
+        RequestStatus.INSUFFICIENT_DATA, RequestStatus.SUCCESS ->
+            "تاریخچه معتبر برای ارزیابی هوشمند کافی نیست."
+        RequestStatus.NOT_SUPPORTED -> "تحلیل تکنیکال برای این ابزار پشتیبانی نمی‌شود."
+    }
 
     val category = data.instrumentCategory
         ?: detail?.instrument_category ?: "OTHER"
@@ -142,7 +174,7 @@ private fun StockOverviewContent(data: StockOverviewData) {
                 Text("آخرین وضعیت قیمت", color = DetailMuted, fontSize = 13.sp)
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    price?.last_price?.let { formatAmount(it) } ?: "داده قیمت در دسترس نیست",
+                    price?.last_price?.let { formatAmount(it) } ?: priceUnavailableMessage,
                     color = DetailText,
                     fontSize = 25.sp,
                     fontWeight = FontWeight.Bold
@@ -182,11 +214,11 @@ private fun StockOverviewContent(data: StockOverviewData) {
             }
 
             Spacer(Modifier.height(16.dp))
-            if (historyItems.isNotEmpty()) {
-                StockPriceChart(historyItems)
+            if (validHistoryItems.isNotEmpty()) {
+                StockPriceChart(validHistoryItems)
             } else {
                 DetailCard {
-                    Text("تاریخچه قیمت برای نمودار در دسترس نیست.", color = DetailMuted)
+                    Text(historyUnavailableMessage, color = DetailMuted)
                 }
             }
 
@@ -209,7 +241,7 @@ private fun StockOverviewContent(data: StockOverviewData) {
             } else {
                 DetailCard {
                     Text(
-                        "داده کافی برای ارزیابی هوشمند این نماد دریافت نشد.",
+                        analysisUnavailableMessage,
                         color = DetailMuted
                     )
                 }
@@ -274,12 +306,12 @@ private fun StockOverviewContent(data: StockOverviewData) {
 
             Spacer(Modifier.height(16.dp))
             DetailSectionTitle("تاریخچه قیمت")
-            if (historyItems.isEmpty()) {
+            if (validHistoryItems.isEmpty()) {
                 DetailCard {
-                    Text("تاریخچه‌ای برای نمایش موجود نیست.", color = DetailMuted)
+                    Text(historyUnavailableMessage, color = DetailMuted)
                 }
             } else {
-                historyItems.sortedBy { it.date }.takeLast(30).asReversed().forEach { item ->
+                validHistoryItems.sortedBy { it.date }.takeLast(30).asReversed().forEach { item ->
                     DetailCard {
                         Text(formatJalaliDate(item.date), color = DetailMuted, fontSize = 11.sp)
                         Spacer(Modifier.height(6.dp))
@@ -491,6 +523,7 @@ private fun AnalysisSummaryCard(analysis: StockAnalysisResponse) {
                 "AVAILABLE" -> "تحلیل با داده‌های در دسترس تکمیل شده است."
                 "PARTIAL" -> "تحلیل ناقص است؛ برخی منابع هنوز متصل نیستند."
                 "INSUFFICIENT_DATA" -> "داده کافی برای تحلیل معتبر وجود ندارد."
+                "NOT_SUPPORTED" -> "این نوع ابزار مالی در حال حاضر پشتیبانی نمی‌شود."
                 else -> "وضعیت تکمیل تحلیل مشخص نیست."
             },
             color = DetailMuted,

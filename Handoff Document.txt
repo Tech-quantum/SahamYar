@@ -1,0 +1,87 @@
+SAHAMYAR - HANDOFF DOCUMENT
+Date: 2026-11-21
+
+1. PROJECT
+Repository: https://github.com/Tech-quantum/SahamYar.git
+Termux working directory: ~/SahamYar/repo-check
+Previously reported local branch: backend-review
+Remote main branch: main
+
+2. PRODUCT DEFINITION
+SahamYar is an intelligent analysis assistant for the Iranian capital market.
+Its scope includes market and instrument analysis, technical and fundamental
+data, news and disclosures, and reasoned analytical opinions with risks.
+
+Personal portfolio management, transaction recording, cost basis,
+personal profit/loss, Excel transaction imports and automatic trading
+are explicitly outside the confirmed scope.
+
+3. DEVELOPMENT SAFETY
+- Inspect git status before any operation.
+- Preserve all tracked and untracked local work.
+- Never use destructive Git commands.
+- Do not commit, push, merge or alter remote branches without approval.
+- Do not overwrite existing user files without a backup and approval.
+
+4. ARCHITECTURE
+Android: Kotlin, Jetpack Compose, Retrofit.
+Backend: Python and Flask.
+Market provider: TSETMC.
+Financial disclosures: Codal client and parser.
+Tests: pytest.
+
+Do not assume FastAPI, PostgreSQL, Redis, or a completed authentication
+system unless verified in the current source tree.
+
+5. INSTRUMENT COVERAGE
+COMMON_STOCK, RIGHTS, FUND, DEBT and OTHER must be distinguished.
+Search coverage and analytical support are separate capabilities.
+Unsupported instruments must be reported transparently.
+
+6. DATA QUALITY
+Missing values must never be silently converted to zero.
+Distinguish AVAILABLE, PARTIAL, UNAVAILABLE, INSUFFICIENT_DATA,
+UNSUPPORTED and ERROR.
+Separate provider facts, deterministic calculations and AI interpretation.
+Cached values must be labeled with their timestamps.
+
+7. CODE AUDIT NOTES
+Codal:
+- Review retry handling; permanent HTTP errors such as 404 should not
+  be retried as transient failures.
+- Apply response-size limits before unbounded content is loaded.
+- Validate dates and report metadata.
+- Keep ambiguous metric mappings explicit rather than guessing.
+- Sanitize API errors and avoid exposing internal exception details.
+
+TSETMC:
+- Preserve instrument category coverage.
+- Retry only transient failures.
+- Review client lifecycle, input validation and response-size limits.
+
+Technical analysis:
+- Do not report an indicator as available without enough historical data.
+- Keep raw, closing and adjusted prices distinct.
+- An individual indicator is not a guaranteed trading signal.
+
+Scheduler:
+- Avoid import-time startup side effects.
+- Review worker lifecycle and shared state before separating processes.
+
+8. TESTS
+A previous snapshot reported 249 passing backend tests.
+Run tests again against the current worktree before claiming that result
+still applies.
+
+9. NEXT STEPS
+1. Inspect git status and current branch.
+2. Run the complete backend tests.
+3. Review tracked and untracked changes.
+4. Complete a read-only audit.
+5. Present a consolidated patch plan.
+6. Apply changes only after explicit approval.
+7. Report test results, changed files and remaining risks.
+
+10. IMPORTANT
+The root app.py is a Termux Flask testing utility, not the Android app.
+Do not delete it based on its filename.

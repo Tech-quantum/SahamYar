@@ -287,7 +287,7 @@ private fun MarketScreen(
                 )
             }
             searchState.error != null -> {
-                EmptyStateCard("خطا در دریافت اطلاعات", searchState.error!!)
+                EmptyStateCard("خطا در دریافت اطلاعات", searchState.error.orEmpty())
             }
             searchState.query.length < 2 -> {
                 EmptyStateCard(
