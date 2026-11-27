@@ -1,12 +1,16 @@
 import copy
+import logging
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.errors import ProviderSchemaError, ProviderUnavailable
 from app.market_hours import MarketHours
+
+logger = logging.getLogger(__name__)
 
 
 PRIORITY_INTERVALS = {
@@ -21,6 +25,8 @@ PRIORITY_ORDER = {
     "background": 2,
 }
 
+DEFAULT_CACHE_MAX_ENTRIES = 1000
+
 
 @dataclass(frozen=True)
 class PriceCacheEntry:
@@ -29,8 +35,14 @@ class PriceCacheEntry:
     fetched_monotonic: float
 
 
+@dataclass
+class _SymbolLockEntry:
+    lock: threading.Lock
+    users: int = 0
+
+
 class PriceDataService:
-    """Shared price cache with source-based symbol subscriptions."""
+    """Bounded shared price cache with source-based symbol subscriptions."""
 
     def __init__(
         self,
@@ -38,23 +50,73 @@ class PriceDataService:
         market_hours: MarketHours | None = None,
         clock: Callable[[], float] = time.monotonic,
         utcnow: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        cache_max_entries: int = DEFAULT_CACHE_MAX_ENTRIES,
     ) -> None:
+        if (
+            isinstance(cache_max_entries, bool)
+            or not isinstance(cache_max_entries, int)
+            or cache_max_entries < 1
+        ):
+            raise ValueError("cache_max_entries must be a positive integer.")
+
         self.provider = provider
         self.market_hours = market_hours or MarketHours()
         self._clock = clock
         self._utcnow = utcnow
-        self._cache: dict[str, PriceCacheEntry] = {}
-        self._symbol_locks: dict[str, threading.Lock] = {}
+        self._cache: OrderedDict[str, PriceCacheEntry] = OrderedDict()
+        self._cache_max_entries = cache_max_entries
+        self._symbol_locks: dict[str, _SymbolLockEntry] = {}
         self._guard = threading.Lock()
         self._symbol_usages: dict[str, set[str]] = {}
 
-    def _get_symbol_lock(self, ins_code: str) -> threading.Lock:
+    def _acquire_symbol_lock(self, ins_code: str) -> _SymbolLockEntry:
+        # Count both owners and waiters before blocking on the per-symbol lock.
+        # This prevents deleting a lock while another thread is about to use it.
         with self._guard:
-            lock = self._symbol_locks.get(ins_code)
-            if lock is None:
-                lock = threading.Lock()
-                self._symbol_locks[ins_code] = lock
-            return lock
+            entry = self._symbol_locks.get(ins_code)
+            if entry is None:
+                entry = _SymbolLockEntry(lock=threading.Lock())
+                self._symbol_locks[ins_code] = entry
+            entry.users += 1
+
+        try:
+            entry.lock.acquire()
+        except BaseException:
+            self._release_symbol_lock_reference(ins_code, entry)
+            raise
+        return entry
+
+    def _release_symbol_lock_reference(
+        self,
+        ins_code: str,
+        entry: _SymbolLockEntry,
+    ) -> None:
+        with self._guard:
+            entry.users -= 1
+            if entry.users == 0 and self._symbol_locks.get(ins_code) is entry:
+                self._symbol_locks.pop(ins_code, None)
+
+    def _release_symbol_lock(
+        self,
+        ins_code: str,
+        entry: _SymbolLockEntry,
+    ) -> None:
+        entry.lock.release()
+        self._release_symbol_lock_reference(ins_code, entry)
+
+    def _get_cached(self, ins_code: str) -> PriceCacheEntry | None:
+        with self._guard:
+            entry = self._cache.get(ins_code)
+            if entry is not None:
+                self._cache.move_to_end(ins_code)
+            return entry
+
+    def _store_cached(self, ins_code: str, entry: PriceCacheEntry) -> None:
+        with self._guard:
+            self._cache[ins_code] = entry
+            self._cache.move_to_end(ins_code)
+            while len(self._cache) > self._cache_max_entries:
+                self._cache.popitem(last=False)
 
     def register_symbol(
         self,
@@ -129,10 +191,9 @@ class PriceDataService:
             status.interval_seconds,
             PRIORITY_INTERVALS[self.symbol_priority(code)],
         )
-        lock = self._get_symbol_lock(code)
-
-        with lock:
-            cached = self._cache.get(code)
+        lock_entry = self._acquire_symbol_lock(code)
+        try:
+            cached = self._get_cached(code)
             age = (
                 self._clock() - cached.fetched_monotonic
                 if cached is not None else None
@@ -148,11 +209,15 @@ class PriceDataService:
 
             try:
                 item = self.provider.get_closing_price_info(code)
-            except (ProviderUnavailable, ProviderSchemaError) as exc:
+            except (ProviderUnavailable, ProviderSchemaError):
                 if cached is None:
                     raise
+                logger.exception(
+                    "TSETMC price refresh failed; returning stale cached data"
+                )
                 return self._response(
-                    code, cached, status, "stale", last_error=str(exc)
+                    code, cached, status, "stale",
+                    last_error="Price provider temporarily unavailable.",
                 )
 
             entry = PriceCacheEntry(
@@ -160,8 +225,10 @@ class PriceDataService:
                 fetched_at=self._utcnow().isoformat(),
                 fetched_monotonic=self._clock(),
             )
-            self._cache[code] = entry
+            self._store_cached(code, entry)
             return self._response(code, entry, status, "fresh")
+        finally:
+            self._release_symbol_lock(code, lock_entry)
 
     @staticmethod
     def _response(

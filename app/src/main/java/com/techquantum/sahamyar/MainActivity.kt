@@ -168,9 +168,9 @@ private fun DashboardScreen() {
                     )
                 }
             }
-            2 -> WatchlistScreen(contentModifier) { code ->
+            2 -> WatchlistScreen(modifier = contentModifier, onStockSelected = { code ->
                 selectedInstrument.value = SelectedInstrument(code, null, null)
-            }
+            })
             else -> ComingSoonScreen(
                 listOf("خانه", "بازار", "دیده‌بان", "تحلیل‌ها", "بیشتر")[selectedTab.intValue],
                 contentModifier
@@ -287,7 +287,7 @@ private fun MarketScreen(
                 )
             }
             searchState.error != null -> {
-                EmptyStateCard("خطا در دریافت اطلاعات", searchState.error!!)
+                EmptyStateCard("خطا در دریافت اطلاعات", searchState.error.orEmpty())
             }
             searchState.query.length < 2 -> {
                 EmptyStateCard(

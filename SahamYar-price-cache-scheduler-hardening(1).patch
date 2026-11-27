@@ -1,0 +1,331 @@
+diff --git a/backend/app/price_service.py b/backend/app/price_service.py
+--- a/backend/app/price_service.py
++++ b/backend/app/price_service.py
+@@ -1,6 +1,7 @@
+ import copy
+ import threading
+ import time
++from collections import OrderedDict
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+ from typing import Any, Callable
+@@ -21,6 +22,8 @@
+     "background": 2,
+ }
+ 
++DEFAULT_CACHE_MAX_ENTRIES = 1000
++
+ 
+ @dataclass(frozen=True)
+ class PriceCacheEntry:
+@@ -29,8 +32,14 @@
+     fetched_monotonic: float
+ 
+ 
++@dataclass
++class _SymbolLockEntry:
++    lock: threading.Lock
++    users: int = 0
++
++
+ class PriceDataService:
+-    """Shared price cache with source-based symbol subscriptions."""
++    """Bounded shared price cache with source-based symbol subscriptions."""
+ 
+     def __init__(
+         self,
+@@ -38,23 +47,73 @@
+         market_hours: MarketHours | None = None,
+         clock: Callable[[], float] = time.monotonic,
+         utcnow: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+-    ) -> None:
++        cache_max_entries: int = DEFAULT_CACHE_MAX_ENTRIES,
++    ) -> None:
++        if (
++            isinstance(cache_max_entries, bool)
++            or not isinstance(cache_max_entries, int)
++            or cache_max_entries < 1
++        ):
++            raise ValueError("cache_max_entries must be a positive integer.")
++
+         self.provider = provider
+         self.market_hours = market_hours or MarketHours()
+         self._clock = clock
+         self._utcnow = utcnow
+-        self._cache: dict[str, PriceCacheEntry] = {}
+-        self._symbol_locks: dict[str, threading.Lock] = {}
++        self._cache: OrderedDict[str, PriceCacheEntry] = OrderedDict()
++        self._cache_max_entries = cache_max_entries
++        self._symbol_locks: dict[str, _SymbolLockEntry] = {}
+         self._guard = threading.Lock()
+         self._symbol_usages: dict[str, set[str]] = {}
+ 
+-    def _get_symbol_lock(self, ins_code: str) -> threading.Lock:
+-        with self._guard:
+-            lock = self._symbol_locks.get(ins_code)
+-            if lock is None:
+-                lock = threading.Lock()
+-                self._symbol_locks[ins_code] = lock
+-            return lock
++    def _acquire_symbol_lock(self, ins_code: str) -> _SymbolLockEntry:
++        # Count both owners and waiters before blocking on the per-symbol lock.
++        # This prevents deleting a lock while another thread is about to use it.
++        with self._guard:
++            entry = self._symbol_locks.get(ins_code)
++            if entry is None:
++                entry = _SymbolLockEntry(lock=threading.Lock())
++                self._symbol_locks[ins_code] = entry
++            entry.users += 1
++
++        try:
++            entry.lock.acquire()
++        except BaseException:
++            self._release_symbol_lock_reference(ins_code, entry)
++            raise
++        return entry
++
++    def _release_symbol_lock_reference(
++        self,
++        ins_code: str,
++        entry: _SymbolLockEntry,
++    ) -> None:
++        with self._guard:
++            entry.users -= 1
++            if entry.users == 0 and self._symbol_locks.get(ins_code) is entry:
++                self._symbol_locks.pop(ins_code, None)
++
++    def _release_symbol_lock(
++        self,
++        ins_code: str,
++        entry: _SymbolLockEntry,
++    ) -> None:
++        entry.lock.release()
++        self._release_symbol_lock_reference(ins_code, entry)
++
++    def _get_cached(self, ins_code: str) -> PriceCacheEntry | None:
++        with self._guard:
++            entry = self._cache.get(ins_code)
++            if entry is not None:
++                self._cache.move_to_end(ins_code)
++            return entry
++
++    def _store_cached(self, ins_code: str, entry: PriceCacheEntry) -> None:
++        with self._guard:
++            self._cache[ins_code] = entry
++            self._cache.move_to_end(ins_code)
++            while len(self._cache) > self._cache_max_entries:
++                self._cache.popitem(last=False)
+ 
+     def register_symbol(
+         self,
+@@ -129,10 +188,9 @@
+             status.interval_seconds,
+             PRIORITY_INTERVALS[self.symbol_priority(code)],
+         )
+-        lock = self._get_symbol_lock(code)
+-
+-        with lock:
+-            cached = self._cache.get(code)
++        lock_entry = self._acquire_symbol_lock(code)
++        try:
++            cached = self._get_cached(code)
+             age = (
+                 self._clock() - cached.fetched_monotonic
+                 if cached is not None else None
+@@ -160,8 +218,10 @@
+                 fetched_at=self._utcnow().isoformat(),
+                 fetched_monotonic=self._clock(),
+             )
+-            self._cache[code] = entry
++            self._store_cached(code, entry)
+             return self._response(code, entry, status, "fresh")
++        finally:
++            self._release_symbol_lock(code, lock_entry)
+ 
+     @staticmethod
+     def _response(
+diff --git a/backend/app/price_scheduler.py b/backend/app/price_scheduler.py
+--- a/backend/app/price_scheduler.py
++++ b/backend/app/price_scheduler.py
+@@ -20,6 +20,8 @@
+         self.market_hours = price_service.market_hours
+         self._clock = clock
+         self._next_due: dict[str, float] = {}
++        self._in_flight: set[str] = set()
++        self._schedule_lock = threading.Lock()
+         self._stop_event = threading.Event()
+         self._thread: threading.Thread | None = None
+         self._lock = threading.Lock()
+@@ -37,33 +39,37 @@
+ 
+         now = self._clock()
+         symbols = self.price_service.tracked_symbols()
++        tracked = set(symbols)
+ 
+-        for code in symbols:
+-            self._next_due.setdefault(code, now)
++        with self._schedule_lock:
++            for code in symbols:
++                self._next_due.setdefault(code, now)
+ 
+-        tracked = set(symbols)
+-        for code in tuple(self._next_due):
+-            if code not in tracked:
+-                self._next_due.pop(code, None)
++            for code in tuple(self._next_due):
++                if code not in tracked and code not in self._in_flight:
++                    self._next_due.pop(code, None)
+ 
+-        due = [
+-            code for code in symbols
+-            if self._next_due.get(code, float("inf")) <= now
+-        ]
+-        if not due:
+-            return None
++            due = [
++                code for code in symbols
++                if code not in self._in_flight
++                and self._next_due.get(code, float("inf")) <= now
++            ]
++            if not due:
++                return None
+ 
+-        code = min(
+-            due,
+-            key=lambda item: (
+-                self._next_due[item],
+-                PRIORITY_ORDER.get(
+-                    self.price_service.symbol_priority(item), 2
++            code = min(
++                due,
++                key=lambda item: (
++                    self._next_due[item],
++                    PRIORITY_ORDER.get(
++                        self.price_service.symbol_priority(item), 2
++                    ),
++                    item,
+                 ),
+-                item,
+-            ),
+-        )
++            )
++            self._in_flight.add(code)
+ 
++        # Never hold the scheduling lock during an upstream/network request.
+         try:
+             self.price_service.get_price(
+                 code, force_refresh=True, priority=None
+@@ -73,16 +79,29 @@
+                 "Price refresh failed for instrument %s", code
+             )
+         finally:
+-            self._next_due[code] = now + self._interval_for(
+-                code, status.interval_seconds
+-            )
++            completed_at = self._clock()
++            with self._schedule_lock:
++                self._in_flight.discard(code)
++                current_symbols = set(self.price_service.tracked_symbols())
++                if code in current_symbols:
++                    self._next_due[code] = completed_at + self._interval_for(
++                        code, status.interval_seconds
++                    )
++                else:
++                    self._next_due.pop(code, None)
+ 
+         return code
+ 
+     def seconds_until_next_due(self) -> float | None:
+-        if not self._next_due:
++        with self._schedule_lock:
++            deadlines = [
++                deadline
++                for code, deadline in self._next_due.items()
++                if code not in self._in_flight
++            ]
++        if not deadlines:
+             return None
+-        return max(0.0, min(self._next_due.values()) - self._clock())
++        return max(0.0, min(deadlines) - self._clock())
+ 
+     def refresh_once(self) -> int:
+         """Force-refresh all tracked symbols; retained for manual operations/tests."""
+diff --git a/backend/tests/test_price_service.py b/backend/tests/test_price_service.py
+--- a/backend/tests/test_price_service.py
++++ b/backend/tests/test_price_service.py
+@@ -194,3 +194,75 @@
+ 
+     assert service.tracked_symbols() == ("123456789",)
+     assert service.symbol_sources("123456789") == ("alert",)
++
++
++
++def test_cache_is_bounded_and_evicts_least_recently_used_entry():
++    provider = FakeProvider()
++    service = PriceDataService(
++        provider=provider,
++        market_hours=FakeMarketHours(),
++        cache_max_entries=2,
++    )
++
++    service.get_price("111")
++    service.get_price("222")
++    service.get_price("111")  # Make 111 the most recently used entry.
++    service.get_price("333")
++
++    assert tuple(service._cache) == ("111", "333")
++    assert len(service._cache) == 2
++
++
++def test_cache_capacity_must_be_positive_integer():
++    provider = FakeProvider()
++    for invalid in (0, -1, 1.5, True):
++        with pytest.raises(ValueError, match="positive integer"):
++            PriceDataService(
++                provider=provider,
++                market_hours=FakeMarketHours(),
++                cache_max_entries=invalid,
++            )
++
++
++def test_symbol_lock_registry_is_cleaned_after_request():
++    service, _, _ = make_service()
++
++    service.get_price("123456789")
++
++    assert service._symbol_locks == {}
++
++
++def test_concurrent_same_symbol_requests_share_one_provider_call():
++    import threading
++    from concurrent.futures import ThreadPoolExecutor
++
++    class BlockingProvider(FakeProvider):
++        def __init__(self):
++            super().__init__()
++            self.entered = threading.Event()
++            self.release = threading.Event()
++
++        def get_closing_price_info(self, code):
++            self.calls += 1
++            self.entered.set()
++            assert self.release.wait(timeout=3)
++            return {"ins_code": code, "closing_price": 5020}
++
++    provider = BlockingProvider()
++    service = PriceDataService(
++        provider=provider,
++        market_hours=FakeMarketHours(),
++    )
++
++    with ThreadPoolExecutor(max_workers=2) as pool:
++        first = pool.submit(service.get_price, "123456789")
++        assert provider.entered.wait(timeout=2)
++        second = pool.submit(service.get_price, "123456789")
++        provider.release.set()
++        first_result = first.result(timeout=3)
++        second_result = second.result(timeout=3)
++
++    assert provider.calls == 1
++    assert first_result["item"] == second_result["item"]
++    assert service._symbol_locks == {}

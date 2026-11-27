@@ -83,7 +83,7 @@ def test_expired_cache_is_refreshed():
     assert provider.calls == 2
 
 
-def test_provider_error_returns_last_valid_cached_price():
+def test_provider_error_returns_last_valid_cached_price(caplog):
     service, provider, clock = make_service()
 
     service.register_symbol("123456789", "watchlist")
@@ -96,7 +96,9 @@ def test_provider_error_returns_last_valid_cached_price():
     assert provider.calls == 2
     assert result["item"]["closing_price"] == 5020
     assert result["data_status"] == "stale"
-    assert result["last_error"] == "TSETMC unavailable"
+    assert result["last_error"] == "Price provider temporarily unavailable."
+    assert "TSETMC unavailable" not in result["last_error"]
+    assert "TSETMC unavailable" in caplog.text
 
 
 def test_provider_error_without_cache_is_propagated():
@@ -194,3 +196,75 @@ def test_explicit_priority_request_registers_source():
 
     assert service.tracked_symbols() == ("123456789",)
     assert service.symbol_sources("123456789") == ("alert",)
+
+
+
+def test_cache_is_bounded_and_evicts_least_recently_used_entry():
+    provider = FakeProvider()
+    service = PriceDataService(
+        provider=provider,
+        market_hours=FakeMarketHours(),
+        cache_max_entries=2,
+    )
+
+    service.get_price("111")
+    service.get_price("222")
+    service.get_price("111")  # Make 111 the most recently used entry.
+    service.get_price("333")
+
+    assert tuple(service._cache) == ("111", "333")
+    assert len(service._cache) == 2
+
+
+def test_cache_capacity_must_be_positive_integer():
+    provider = FakeProvider()
+    for invalid in (0, -1, 1.5, True):
+        with pytest.raises(ValueError, match="positive integer"):
+            PriceDataService(
+                provider=provider,
+                market_hours=FakeMarketHours(),
+                cache_max_entries=invalid,
+            )
+
+
+def test_symbol_lock_registry_is_cleaned_after_request():
+    service, _, _ = make_service()
+
+    service.get_price("123456789")
+
+    assert service._symbol_locks == {}
+
+
+def test_concurrent_same_symbol_requests_share_one_provider_call():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    class BlockingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__()
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def get_closing_price_info(self, code):
+            self.calls += 1
+            self.entered.set()
+            assert self.release.wait(timeout=3)
+            return {"ins_code": code, "closing_price": 5020}
+
+    provider = BlockingProvider()
+    service = PriceDataService(
+        provider=provider,
+        market_hours=FakeMarketHours(),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(service.get_price, "123456789")
+        assert provider.entered.wait(timeout=2)
+        second = pool.submit(service.get_price, "123456789")
+        provider.release.set()
+        first_result = first.result(timeout=3)
+        second_result = second.result(timeout=3)
+
+    assert provider.calls == 1
+    assert first_result["item"] == second_result["item"]
+    assert service._symbol_locks == {}
