@@ -8,8 +8,8 @@ Primary branch: main
 Verified main baseline before this documentation update:
 37bcf9df04ce9b2a8a8b417cd60fe677218e43f3
 
-The documentation refresh is being prepared separately from application code.
-Do not assume the docs branch has been merged until GitHub confirms it.
+This handoff records the engineering state at the stated snapshot. For the
+latest repository state, verify the current main commit and any open pull requests.
 
 2. PRODUCT DEFINITION
 SahamYar is an intelligent analysis assistant for the Iranian capital market.
