@@ -1,57 +1,141 @@
 # SahamYar - Deferred Roadmap
 
-## Final Phase: Persian Voice Capabilities (ASR / TTS)
+این سند قابلیت‌های تأییدشده‌ای را ثبت می‌کند که هنوز کامل یا آماده انتشار نیستند.
+برنامه‌ریزی‌شده بودن به معنی پیاده‌سازی یا اتصال واقعی نیست. ترتیب زیر وابستگی‌ها
+و اولویت فنی را نشان می‌دهد؛ هر مرحله باید با تست و شواهد واقعی تأیید شود.
 
-**Priority:** Deferred - Final Development Phase  
-**Start condition:** Only after the backend and Android frontend are fully
-implemented, integrated, tested, and considered stable.
+## 1. تکمیل یکپارچگی Android و Backend
 
-### Objective
-Add Persian voice interaction to SahamYar, allowing users to:
-- Convert Persian speech into text (ASR / Speech-to-Text).
-- Read analysis results and other supported content aloud (TTS / Text-to-Speech).
-- Use voice capabilities locally and offline where technically feasible.
+**وضعیت:** نیازمند تکمیل و راستی‌آزمایی انتهابه‌انتها
 
-### Preferred Technology Stack
+- بررسی مسیرهای مصرف‌شده در Android در برابر قرارداد واقعی Flask API.
+- تکمیل جریان جست‌وجو، جزئیات نماد، قیمت، تاریخچه، وضعیت بازار و گزارش‌های Codal.
+- نمایش صحیح وضعیت‌های AVAILABLE، PARTIAL، UNAVAILABLE،
+  INSUFFICIENT_DATA، UNSUPPORTED و ERROR در رابط کاربری.
+- نمایش منبع و زمان دریافت داده و تفکیک داده cacheشده از داده تازه.
+- تست روی دستگاه واقعی با Backend در محیط محلی Termux.
+- جلوگیری از پیاده‌سازی دوباره فرمول‌ها و منطق تحلیل در Android؛ Backend مرجع
+  منطق تحلیل سمت سرور باقی بماند.
 
-1. **Sherpa-ONNX**
-   - Primary on-device inference runtime.
-   - Android integration through Kotlin/Java.
+موفقیت این مرحله باید با تست‌های integration و سناریوهای واقعی دستگاه ثبت شود؛
+موفقیت Gradle به‌تنهایی اثبات اتصال کامل نیست.
+
+## 2. تکمیل موتور تحلیل بنیادی
+
+**وضعیت:** زیرساخت دریافت و استانداردسازی گزارش وجود دارد؛ موتور کامل نشده است.
+
+- گسترش پوشش metricهای معتبر از صورت‌های مالی Codal.
+- نگهداری دوره، واحد، نوع گزارش (اصلی/تلفیقی)، حسابرسی و تجدید ارائه.
+- محاسبه نسبت‌ها فقط با صورت و مخرج معتبر و هم‌مبنا.
+- مقایسه دوره‌ای و سالانه فقط میان دوره‌های قابل‌مقایسه.
+- ثبت فرمول، ورودی‌ها، منبع و وضعیت هر metric.
+- مدیریت تغییر سرمایه و رویدادهای شرکتی در تحلیل تاریخی.
+- ساخت امتیاز بنیادی فقط پس از پوشش کافی، وزن‌دهی مستند و تست رگرسیون.
+
+نگاشت مبهم ردیف‌های حسابداری نباید به‌زور به metric قطعی تبدیل شود.
+
+## 3. اتصال لایه‌های خبری، اقتصادی و ژئوپلیتیک
+
+**وضعیت:** Providerهای کامل و راستی‌آزمایی‌شده هنوز متصل نیستند.
+
+- اخبار و اطلاعیه‌های معتبر، همراه منبع، زمان انتشار و زمان دریافت.
+- اقتصاد ایران: نرخ ارز، تورم، نرخ بهره، بودجه و تحریم‌ها از منابع معتبر.
+- ریسک‌های سیاسی، ژئوپلیتیک و نظامی با تفکیک خبر تأییدشده از تفسیر.
+- بازارهای جهانی و موازی مرتبط مانند نفت، فلزات، ارز و طلا.
+- سنجش ارتباط خبر/رویداد با صنعت و نماد با ذکر زنجیره استدلال و افق زمانی.
+- مدیریت تعارض منابع، کهنگی داده و درجه اطمینان.
+
+تا پیش از اتصال Provider و دریافت داده تازه، این لایه‌ها باید UNAVAILABLE یا
+وضعیت دقیق متناظر باقی بمانند؛ حافظه مدل جایگزین منبع زنده نیست.
+
+## 4. تکمیل تحلیل چندمحوره و جمع‌بندی بازار
+
+**وضعیت:** چشم‌انداز محصول؛ پیاده‌سازی جامع هنوز کامل نیست.
+
+چارچوب موردنظر باید شواهد و وضعیت مستقل هر محور را نگه دارد:
+1. روند و سلامت بازار.
+2. شرایط سیاسی، ژئوپلیتیک و ریسک تشدید/کاهش تنش.
+3. وضعیت عملیاتی بازار و تقویم/محدودیت‌های معاملاتی.
+4. اقتصاد کلان ایران.
+5. نقدینگی و رفتار سرمایه‌گذاران.
+6. صنایع و بازارهای موازی/جهانی.
+
+موتور ترکیب باید تعارض محورها، داده ناقص، تازگی، منبع و سطح اطمینان را حفظ کند.
+نبود داده در یک محور نباید با امتیاز یا پیش‌بینی ساختگی پر شود. پیشنهادهای BUY،
+SELL، HOLD یا WAIT فقط پس از کفایت شواهد و همراه دلایل و ریسک‌ها مجازند.
+
+## 5. ماندگاری داده و زیرساخت Scheduler
+
+**وضعیت:** cache و scheduler فعلی حافظه‌ای هستند.
+
+- طراحی ذخیره پایدار برای watchlist و هشدارهای کاربر، در صورت تأیید دامنه محصول.
+- تعریف lifecycle روشن برای refreshهای خودکار و دستی.
+- جلوگیری از refresh هم‌زمان تکراری برای یک نماد.
+- هماهنگی scheduler میان چند process/worker.
+- مدیریت restart، خطا، backoff، محدودیت نرخ و وضعیت stale.
+- افزودن تست‌های race condition و multi-instance پیش از فعال‌سازی production.
+
+تا تکمیل این مرحله، رفتار چندپردازه‌ای یا ماندگاری پس از restart را تضمین‌شده
+معرفی نکن.
+
+## 6. احراز هویت و آمادگی انتشار
+
+**وضعیت:** تکمیل نشده؛ استقرار عمومی فعلاً خارج از مرحله جاری توسعه است.
+
+- طراحی احراز هویت و مجوزدهی برای قابلیت‌های وابسته به کاربر.
+- محدودسازی نرخ، کنترل سوءاستفاده و مدیریت امن secrets.
+- تنظیم CORS، host binding، logging و خطاهای عمومی.
+- جداسازی workerهای پس‌زمینه از Flask development server.
+- پایش، health checks، backup و بازیابی.
+- بررسی امنیتی API و تست بار/پایداری.
+- مستندسازی استقرار و rollback.
+
+هیچ endpoint تغییردهنده یا حاوی داده کاربر نباید بدون کنترل دسترسی منتشر شود.
+
+## 7. قابلیت‌های صوتی فارسی (ASR / TTS)
+
+**اولویت:** مرحله نهایی و مؤخر  
+**وضعیت:** PLANNED - NOT STARTED
+
+### هدف
+- تبدیل گفتار فارسی به متن (ASR / Speech-to-Text).
+- خواندن پاسخ‌ها و تحلیل‌ها با صدای فارسی (TTS / Text-to-Speech).
+- امکان پردازش محلی و آفلاین در صورت اثبات کیفیت و کارایی.
+
+### فناوری‌های نامزد
+
+1. Sherpa-ONNX
    - https://github.com/k2-fsa/sherpa-onnx
-
-2. **Shenava Rizeh - Persian ASR**
-   - Initial candidate for Persian speech recognition.
+2. Shenava Rizeh - Persian ASR
    - https://huggingface.co/Reza2kn/Shenava-Rizeh-v1.0-sherpa-onnx
-
-3. **Persian-TTS by Ali Fathi**
-   - Initial candidate for Persian text-to-speech.
+3. Persian-TTS by Ali Fathi
    - https://huggingface.co/alifthi/persian-TTS
    - https://github.com/alifthi/persian-tts
 
-### Implementation Plan
+### برنامه اجرا
 
-1. Create an isolated SahamYar-Voice-Lab proof of concept.
-2. Test Shenava Rizeh recognition quality with real Persian speech.
-3. Test Persian-TTS voice quality, pronunciation, speed and device performance.
-4. Verify Android compatibility and offline operation using Sherpa-ONNX.
-5. Review model, runtime and dependency licenses before any distribution
-   or commercial use. Model and dependency licenses must be checked separately.
-6. Design independent, replaceable ASR and TTS interfaces.
-7. Build a domain-specific normalization dictionary for Iranian market terms,
-   symbols and abbreviations, including فولاد، فملی، RSI، MACD، EPS، P/E،
-   TSETMC and Codal.
-8. Integrate into SahamYar only after successful tests and approval.
+1. ساخت نمونه مستقل SahamYar-Voice-Lab.
+2. ارزیابی ASR با گفتار واقعی فارسی و لهجه‌های مرتبط.
+3. ارزیابی کیفیت تلفظ، سرعت و صدای TTS.
+4. سنجش مصرف RAM/CPU، زمان پاسخ و سازگاری دستگاه Android هدف.
+5. بررسی جداگانه مجوز مدل، runtime و وابستگی‌ها پیش از توزیع.
+6. تعریف interfaceهای مستقل و قابل‌جایگزینی ASR و TTS.
+7. ساخت واژه‌نامه تخصصی نمادها و اصطلاحات بازار ایران.
+8. ادغام فقط پس از موفقیت آزمون‌ها و تأیید مالک پروژه.
 
-### Engineering Constraints
+### محدودیت‌ها
 
-- Do not start this phase while backend or frontend implementation is ongoing.
-- Do not modify or destabilize existing backend and frontend work for this task.
-- Keep voice processing modular and independently testable.
-- Do not assume model quality, performance, licensing or offline compatibility
-  until verified on target Android devices.
-- Preserve the ability to replace ASR/TTS models without rewriting the app.
+- این مرحله تا پایدارشدن Backend و Android آغاز نشود.
+- کیفیت، سرعت، آفلاین‌بودن و مجوز مدل‌ها فرض‌شده نیست و باید آزمایش شود.
+- قابلیت صوتی نباید منطق تحلیل بازار را در کلاینت تکرار کند.
 
-### Initial Status
-PLANNED - NOT STARTED
+---
 
-This is a deferred final-phase feature, not part of the current implementation.
+## معیار خروج از وضعیت Deferred
+
+هر قابلیت فقط وقتی از این فهرست خارج می‌شود که:
+- پیاده‌سازی آن در کد قابل مشاهده باشد؛
+- تست‌های مرتبط اجرا و موفق شده باشند؛
+- وابستگی‌ها، محدودیت‌ها و مجوزها بررسی شده باشند؛
+- مستندات و قرارداد API به‌روز شده باشند؛
+- در صورت نیاز، اجرای زنده یا دستگاه واقعی نیز راستی‌آزمایی شده باشد.
